@@ -48,11 +48,13 @@ python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
 python -m pip install -e /workspace/text2video/app
 python -m pip install \
   "huggingface_hub[cli]" \
-  "transformers>=4.51.3" \
-  "accelerate>=1.0.0" \
-  "diffusers @ git+https://github.com/huggingface/diffusers" \
+  "transformers==4.51.3" \
+  "accelerate>=1.1.1" \
+  "diffusers==0.36.0" \
+  "safetensors>=0.4.3" \
   sentencepiece
-python -m pip install -r /workspace/models/wan/Wan2.2/requirements.txt
+grep -v '^flash_attn' /workspace/models/wan/Wan2.2/requirements.txt >/tmp/wan-requirements-no-flash.txt
+python -m pip install -r /tmp/wan-requirements-no-flash.txt
 
 huggingface-cli download stabilityai/stable-diffusion-xl-base-1.0 --local-dir /workspace/models/sdxl/stable-diffusion-xl-base-1.0
 huggingface-cli download Wan-AI/Wan2.2-TI2V-5B --local-dir /workspace/models/wan/Wan2.2-TI2V-5B
