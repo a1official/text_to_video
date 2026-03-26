@@ -179,7 +179,7 @@ def _generate_wan_ti2v_sync(request: WanGenerateRequest) -> WanGenerateResponse:
         completed = subprocess.run(
             command,
             cwd=str(wan_repo),
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
@@ -188,6 +188,12 @@ def _generate_wan_ti2v_sync(request: WanGenerateRequest) -> WanGenerateResponse:
             print(completed.stdout[-4000:])
         if completed.stderr:
             print(completed.stderr[-4000:])
+
+        if completed.returncode != 0:
+            details = "\n".join(
+                part for part in [completed.stdout.strip(), completed.stderr.strip()] if part
+            )
+            raise RuntimeError(details or f"Wan generate.py failed with exit code {completed.returncode}")
 
         _upload_file(request.upload_url, output_video, "video/mp4")
 
