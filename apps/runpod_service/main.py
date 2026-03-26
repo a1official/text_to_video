@@ -7,9 +7,8 @@ import tempfile
 from pathlib import Path
 
 from fastapi import FastAPI
-from PIL import Image
+import httpx
 
-from text2video.aws.s3 import S3Storage
 from text2video.config import get_settings
 from text2video.runpod.schemas import (
     HealthResponse,
@@ -22,7 +21,6 @@ from text2video.runpod.schemas import (
 
 settings = get_settings()
 app = FastAPI(title="Runpod Inference Service", version="0.1.0")
-s3_storage = S3Storage(settings)
 
 
 def _cleanup_cuda() -> None:
@@ -35,6 +33,25 @@ def _cleanup_cuda() -> None:
             torch.cuda.ipc_collect()
     except Exception:
         pass
+
+
+def _upload_file(upload_url: str, file_path: Path, content_type: str) -> None:
+    with file_path.open("rb") as file_handle:
+        response = httpx.put(
+            upload_url,
+            content=file_handle.read(),
+            headers={"Content-Type": content_type},
+            timeout=None,
+        )
+    response.raise_for_status()
+
+
+def _download_file(download_url: str, target_path: Path) -> None:
+    with httpx.stream("GET", download_url, timeout=None) as response:
+        response.raise_for_status()
+        with target_path.open("wb") as file_handle:
+            for chunk in response.iter_bytes():
+                file_handle.write(chunk)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -72,7 +89,7 @@ def generate_qwen_keyframe(request: QwenGenerateRequest) -> QwenGenerateResponse
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / f"{request.shot_id}.png"
         image.save(output_path)
-        s3_storage.upload_file(str(output_path), request.output_key)
+        _upload_file(request.upload_url, output_path, "image/png")
 
     del image
     del pipe
@@ -94,7 +111,7 @@ def generate_wan_ti2v(request: WanGenerateRequest) -> WanGenerateResponse:
         tmpdir_path = Path(tmpdir)
         input_image = tmpdir_path / f"{request.shot_id}.png"
         output_video = tmpdir_path / f"{request.shot_id}.mp4"
-        s3_storage.download_file(request.source_image_key, str(input_image))
+        _download_file(request.source_image_url, input_image)
 
         command = [
             "python",
@@ -134,7 +151,7 @@ def generate_wan_ti2v(request: WanGenerateRequest) -> WanGenerateResponse:
             check=True,
         )
 
-        s3_storage.upload_file(str(output_video), request.output_key)
+        _upload_file(request.upload_url, output_video, "video/mp4")
 
     _cleanup_cuda()
     return WanGenerateResponse(

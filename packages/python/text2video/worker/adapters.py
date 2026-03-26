@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from text2video.aws.s3 import S3Storage
 from text2video.config import get_settings
 from text2video.runpod.client import RunpodInferenceClient
 from text2video.runpod.schemas import QwenGenerateRequest, WanGenerateRequest
@@ -26,12 +27,15 @@ class QwenImageAdapter(WorkerAdapter):
         payload = RenderWorkerPayload.model_validate(job.get("payload", {}))
         settings = get_settings()
         if settings.runpod_inference_base_url:
+            storage = S3Storage(settings)
+            output_key = payload.keyframe_output_key or f"keyframes/{payload.project_id}/{payload.shot_id}.png"
             response = RunpodInferenceClient(settings).generate_qwen_keyframe(
                 QwenGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
                     prompt=payload.prompt,
-                    output_key=payload.keyframe_output_key or f"keyframes/{payload.project_id}/{payload.shot_id}.png",
+                    output_key=output_key,
+                    upload_url=storage.create_presigned_upload(output_key, expires_in=3600)["url"],
                 )
             )
             return WorkerExecutionResult(
@@ -60,13 +64,20 @@ class WanAdapter(WorkerAdapter):
             raise ValueError("Wan TI2V jobs require source_image_key")
         settings = get_settings()
         if settings.runpod_inference_base_url:
+            storage = S3Storage(settings)
+            output_key = f"renders/{payload.project_id}/{payload.shot_id}.mp4"
             response = RunpodInferenceClient(settings).generate_wan_ti2v(
                 WanGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
                     prompt=payload.prompt,
                     source_image_key=payload.source_image_key,
-                    output_key=f"renders/{payload.project_id}/{payload.shot_id}.mp4",
+                    source_image_url=storage.create_presigned_download(
+                        payload.source_image_key,
+                        expires_in=3600,
+                    )["url"],
+                    output_key=output_key,
+                    upload_url=storage.create_presigned_upload(output_key, expires_in=3600)["url"],
                 )
             )
             return WorkerExecutionResult(

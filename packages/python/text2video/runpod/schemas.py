@@ -8,6 +8,7 @@ class QwenGenerateRequest(BaseModel):
     shot_id: str
     prompt: str
     output_key: str
+    upload_url: str
     width: int = 1280
     height: int = 704
     negative_prompt: str = ""
@@ -28,7 +29,9 @@ class WanGenerateRequest(BaseModel):
     shot_id: str
     prompt: str
     source_image_key: str
+    source_image_url: str
     output_key: str
+    upload_url: str
     size: str = "1280*704"
     frame_num: int = 81
     sample_steps: int = 30
