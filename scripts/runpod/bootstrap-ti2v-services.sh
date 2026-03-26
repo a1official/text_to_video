@@ -52,6 +52,10 @@ python -m pip install \
   "accelerate>=1.1.1" \
   "diffusers==0.36.0" \
   "safetensors>=0.4.3" \
+  einops \
+  decord \
+  librosa \
+  soundfile \
   sentencepiece
 grep -v '^flash_attn' /workspace/models/wan/Wan2.2/requirements.txt >/tmp/wan-requirements-no-flash.txt
 python -m pip install -r /tmp/wan-requirements-no-flash.txt
