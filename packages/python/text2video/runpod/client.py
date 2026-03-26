@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from text2video.config import Settings
 from text2video.runpod.schemas import (
+    InferenceJobAccepted,
+    InferenceJobStatus,
     QwenGenerateRequest,
     QwenGenerateResponse,
     WanGenerateRequest,
@@ -22,16 +26,34 @@ class RunpodInferenceClient:
         response = httpx.post(
             f"{self.base_url}/qwen/generate-keyframe",
             json=request.model_dump(),
-            timeout=self.timeout,
+            timeout=30,
         )
         response.raise_for_status()
-        return QwenGenerateResponse.model_validate(response.json())
+        accepted = InferenceJobAccepted.model_validate(response.json())
+        return QwenGenerateResponse.model_validate(self._wait_for_job(accepted.job_id))
 
     def generate_wan_ti2v(self, request: WanGenerateRequest) -> WanGenerateResponse:
         response = httpx.post(
             f"{self.base_url}/wan/generate-ti2v",
             json=request.model_dump(),
-            timeout=self.timeout,
+            timeout=30,
         )
         response.raise_for_status()
-        return WanGenerateResponse.model_validate(response.json())
+        accepted = InferenceJobAccepted.model_validate(response.json())
+        return WanGenerateResponse.model_validate(self._wait_for_job(accepted.job_id))
+
+    def _wait_for_job(self, job_id: str) -> dict:
+        deadline = time.time() + self.timeout
+        while time.time() < deadline:
+            response = httpx.get(
+                f"{self.base_url}/jobs/{job_id}",
+                timeout=30,
+            )
+            response.raise_for_status()
+            status = InferenceJobStatus.model_validate(response.json())
+            if status.status == "completed":
+                return status.result or {}
+            if status.status == "failed":
+                raise RuntimeError(status.error or f"Runpod job {job_id} failed")
+            time.sleep(5)
+        raise TimeoutError(f"Runpod job {job_id} did not finish within {self.timeout} seconds")

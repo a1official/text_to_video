@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -53,3 +55,15 @@ class HealthResponse(BaseModel):
     status: str = "ok"
     qwen_loaded: bool = False
     wan_repo_present: bool = False
+
+
+class InferenceJobAccepted(BaseModel):
+    job_id: str
+    status: str = "queued"
+
+
+class InferenceJobStatus(BaseModel):
+    job_id: str
+    status: str
+    result: dict[str, Any] | None = None
+    error: str = ""

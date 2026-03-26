@@ -4,14 +4,19 @@ import gc
 import os
 import subprocess
 import tempfile
+import threading
+from copy import deepcopy
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import httpx
 
 from text2video.config import get_settings
 from text2video.runpod.schemas import (
     HealthResponse,
+    InferenceJobAccepted,
+    InferenceJobStatus,
     QwenGenerateRequest,
     QwenGenerateResponse,
     WanGenerateRequest,
@@ -21,6 +26,8 @@ from text2video.runpod.schemas import (
 
 settings = get_settings()
 app = FastAPI(title="Runpod Inference Service", version="0.1.0")
+jobs: dict[str, dict] = {}
+jobs_lock = threading.Lock()
 
 
 def _cleanup_cuda() -> None:
@@ -54,6 +61,28 @@ def _download_file(download_url: str, target_path: Path) -> None:
                 file_handle.write(chunk)
 
 
+def _set_job(job_id: str, **updates: object) -> None:
+    with jobs_lock:
+        jobs.setdefault(job_id, {"job_id": job_id, "status": "queued", "result": None, "error": ""})
+        jobs[job_id].update(updates)
+
+
+def _get_job(job_id: str) -> dict:
+    with jobs_lock:
+        if job_id not in jobs:
+            raise KeyError(job_id)
+        return deepcopy(jobs[job_id])
+
+
+def _run_job(job_id: str, fn, request) -> None:
+    try:
+        _set_job(job_id, status="running")
+        result = fn(request)
+        _set_job(job_id, status="completed", result=result.model_dump())
+    except Exception as exc:
+        _set_job(job_id, status="failed", error=str(exc))
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     qwen_cache = Path(os.environ.get("HF_HOME", "/workspace/cache/huggingface")) / "hub"
@@ -65,8 +94,7 @@ def health() -> HealthResponse:
     )
 
 
-@app.post("/qwen/generate-keyframe", response_model=QwenGenerateResponse)
-def generate_qwen_keyframe(request: QwenGenerateRequest) -> QwenGenerateResponse:
+def _generate_qwen_keyframe_sync(request: QwenGenerateRequest) -> QwenGenerateResponse:
     import torch
     from diffusers import QwenImagePipeline
 
@@ -101,8 +129,7 @@ def generate_qwen_keyframe(request: QwenGenerateRequest) -> QwenGenerateResponse
     )
 
 
-@app.post("/wan/generate-ti2v", response_model=WanGenerateResponse)
-def generate_wan_ti2v(request: WanGenerateRequest) -> WanGenerateResponse:
+def _generate_wan_ti2v_sync(request: WanGenerateRequest) -> WanGenerateResponse:
     _cleanup_cuda()
     wan_repo = Path("/workspace/models/wan/Wan2.2")
     ckpt_dir = Path("/workspace/models/wan/Wan2.2-TI2V-5B")
@@ -158,3 +185,27 @@ def generate_wan_ti2v(request: WanGenerateRequest) -> WanGenerateResponse:
         s3_key=request.output_key,
         notes="Wan TI2V segment generated and uploaded to S3.",
     )
+
+
+@app.post("/qwen/generate-keyframe", response_model=InferenceJobAccepted)
+def generate_qwen_keyframe(request: QwenGenerateRequest) -> InferenceJobAccepted:
+    job_id = str(uuid4())
+    _set_job(job_id, status="queued")
+    threading.Thread(target=_run_job, args=(job_id, _generate_qwen_keyframe_sync, request), daemon=True).start()
+    return InferenceJobAccepted(job_id=job_id)
+
+
+@app.post("/wan/generate-ti2v", response_model=InferenceJobAccepted)
+def generate_wan_ti2v(request: WanGenerateRequest) -> InferenceJobAccepted:
+    job_id = str(uuid4())
+    _set_job(job_id, status="queued")
+    threading.Thread(target=_run_job, args=(job_id, _generate_wan_ti2v_sync, request), daemon=True).start()
+    return InferenceJobAccepted(job_id=job_id)
+
+
+@app.get("/jobs/{job_id}", response_model=InferenceJobStatus)
+def get_job(job_id: str) -> InferenceJobStatus:
+    try:
+        return InferenceJobStatus.model_validate(_get_job(job_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
