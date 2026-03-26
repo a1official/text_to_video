@@ -8,6 +8,7 @@ from text2video.config import Settings
 
 class ShotPlanner:
     VALID_BACKENDS = {"wan", "humo", "ltx"}
+    VALID_QUALITY_TIERS = {"preview", "hero"}
     VALID_SHOT_TYPES = {
         "establishing",
         "wide",
@@ -37,8 +38,10 @@ class ShotPlanner:
             "The summary must be a string. "
             "The continuity field must be an array of short strings. "
             "The shots field must be an array. "
-            "Each shot must include: shot_id, shot_type, duration_sec, backend_hint, camera, prompt, audio_mode. "
+            "Each shot must include: shot_id, shot_type, duration_sec, backend_hint, audio_mode, "
+            "appearance_prompt, motion_prompt, camera_prompt, quality_tier. "
             "Allowed backend_hint values: wan, humo, ltx. "
+            "Allowed quality_tier values: preview, hero. "
             "Allowed shot_type values: establishing, wide, medium, closeup, talking_head, action, transition, insert. "
             "Allowed audio_mode values: none, ambience, speech, music, speech_and_ambience. "
             "Return no markdown and no explanation outside the JSON."
@@ -108,8 +111,21 @@ class ShotPlanner:
             "shot_type": shot_type,
             "duration_sec": duration_sec,
             "backend_hint": backend_hint,
-            "camera": str(shot.get("camera", "")).strip(),
-            "prompt": str(shot.get("prompt", "")).strip(),
+            "camera": str(shot.get("camera") or shot.get("camera_prompt") or "").strip(),
+            "prompt": str(
+                shot.get("prompt")
+                or shot.get("appearance_prompt")
+                or shot.get("motion_prompt")
+                or ""
+            ).strip(),
+            "appearance_prompt": str(
+                shot.get("appearance_prompt")
+                or shot.get("prompt")
+                or ""
+            ).strip(),
+            "motion_prompt": str(shot.get("motion_prompt") or shot.get("prompt") or "").strip(),
+            "camera_prompt": str(shot.get("camera_prompt") or shot.get("camera") or "").strip(),
+            "quality_tier": self._normalize_quality_tier(shot.get("quality_tier"), backend_hint),
             "audio_mode": audio_mode,
         }
 
@@ -125,7 +141,7 @@ class ShotPlanner:
 
         if shot_type == "talking_head":
             return "humo"
-        return "wan"
+        return "ltx"
 
     def _normalize_shot_type(self, raw_value: object) -> str:
         value = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
@@ -145,6 +161,12 @@ class ShotPlanner:
         if mapped in self.VALID_SHOT_TYPES:
             return mapped
         return "wide"
+
+    def _normalize_quality_tier(self, raw_value: object, backend_hint: str) -> str:
+        value = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if value in self.VALID_QUALITY_TIERS:
+            return value
+        return "hero" if backend_hint in {"wan", "humo"} else "preview"
 
     def _normalize_audio_mode(self, raw_value: object, shot_type: str) -> str:
         value = str(raw_value or "").strip().lower().replace("-", "_").replace(" ", "_")

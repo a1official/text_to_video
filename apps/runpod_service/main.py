@@ -17,6 +17,8 @@ from text2video.runpod.schemas import (
     HealthResponse,
     InferenceJobAccepted,
     InferenceJobStatus,
+    LtxGenerateRequest,
+    LtxGenerateResponse,
     SdxlGenerateRequest,
     SdxlGenerateResponse,
     WanGenerateRequest,
@@ -204,6 +206,59 @@ def _generate_wan_ti2v_sync(request: WanGenerateRequest) -> WanGenerateResponse:
     )
 
 
+def _generate_ltx_preview_sync(request: LtxGenerateRequest) -> LtxGenerateResponse:
+    import torch
+    from diffusers import LTX2ImageToVideoPipeline
+    from diffusers.utils import export_to_video
+    from PIL import Image
+
+    _cleanup_cuda()
+
+    model_id = settings.ltx_model_id
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        input_image = tmpdir_path / f"{request.shot_id}.png"
+        output_video = tmpdir_path / f"{request.shot_id}.mp4"
+        _download_file(request.source_image_url, input_image)
+
+        pipe = LTX2ImageToVideoPipeline.from_pretrained(
+            model_id,
+            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        )
+        if torch.cuda.is_available():
+            pipe.enable_model_cpu_offload()
+        image = Image.open(input_image).convert("RGB")
+        generator = torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(request.seed)
+
+        video, _audio = pipe(
+            image=image,
+            prompt=request.prompt,
+            negative_prompt=request.negative_prompt,
+            width=request.width,
+            height=request.height,
+            num_frames=request.num_frames,
+            frame_rate=24.0,
+            num_inference_steps=request.num_inference_steps,
+            guidance_scale=request.guidance_scale,
+            generator=generator,
+            output_type="pil",
+            return_dict=False,
+        )
+        export_to_video(video[0], str(output_video), fps=24)
+        _upload_file(request.upload_url, output_video, "video/mp4")
+
+        del image
+        del pipe
+
+    _cleanup_cuda()
+    return LtxGenerateResponse(
+        s3_key=request.output_key,
+        resolution=f"{request.width}x{request.height}",
+        notes=f"LTX preview generated with model {model_id} and uploaded to S3.",
+    )
+
+
 @app.post("/sdxl/generate-keyframe", response_model=InferenceJobAccepted)
 def generate_sdxl_keyframe(request: SdxlGenerateRequest) -> InferenceJobAccepted:
     job_id = str(uuid4())
@@ -217,6 +272,14 @@ def generate_wan_ti2v(request: WanGenerateRequest) -> InferenceJobAccepted:
     job_id = str(uuid4())
     _set_job(job_id, status="queued")
     threading.Thread(target=_run_job, args=(job_id, _generate_wan_ti2v_sync, request), daemon=True).start()
+    return InferenceJobAccepted(job_id=job_id)
+
+
+@app.post("/ltx/generate-preview", response_model=InferenceJobAccepted)
+def generate_ltx_preview(request: LtxGenerateRequest) -> InferenceJobAccepted:
+    job_id = str(uuid4())
+    _set_job(job_id, status="queued")
+    threading.Thread(target=_run_job, args=(job_id, _generate_ltx_preview_sync, request), daemon=True).start()
     return InferenceJobAccepted(job_id=job_id)
 
 

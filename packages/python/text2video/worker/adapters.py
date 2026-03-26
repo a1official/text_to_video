@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from text2video.aws.s3 import S3Storage
 from text2video.config import get_settings
 from text2video.runpod.client import RunpodInferenceClient
-from text2video.runpod.schemas import SdxlGenerateRequest, WanGenerateRequest
+from text2video.runpod.schemas import LtxGenerateRequest, SdxlGenerateRequest, WanGenerateRequest
 from text2video.worker.contracts import RenderWorkerPayload, StitchWorkerPayload, WorkerExecutionResult
 from text2video.worker.stitch import run_ffmpeg_stitch
 
@@ -33,7 +33,7 @@ class SdxlImageAdapter(WorkerAdapter):
                 SdxlGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
-                    prompt=payload.prompt,
+                    prompt=payload.appearance_prompt or payload.prompt,
                     output_key=output_key,
                     upload_url=storage.create_presigned_upload(output_key, expires_in=3600)["url"],
                 )
@@ -70,7 +70,7 @@ class WanAdapter(WorkerAdapter):
                 WanGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
-                    prompt=payload.prompt,
+                    prompt=_compose_render_prompt(payload),
                     source_image_key=payload.source_image_key,
                     source_image_url=storage.create_presigned_download(
                         payload.source_image_key,
@@ -122,14 +122,42 @@ class LtxAdapter(WorkerAdapter):
 
     def execute(self, job: dict) -> WorkerExecutionResult:
         payload = RenderWorkerPayload.model_validate(job.get("payload", {}))
+        settings = get_settings()
+        if settings.runpod_inference_base_url:
+            storage = S3Storage(settings)
+            output_key = payload.preview_output_key or f"previews/{payload.project_id}/{payload.shot_id}.mp4"
+            response = RunpodInferenceClient(settings).generate_ltx_preview(
+                LtxGenerateRequest(
+                    project_id=payload.project_id,
+                    shot_id=payload.shot_id,
+                    prompt=_compose_render_prompt(payload),
+                    source_image_key=payload.source_image_key,
+                    source_image_url=storage.create_presigned_download(
+                        payload.source_image_key,
+                        expires_in=3600,
+                    )["url"],
+                    output_key=output_key,
+                    upload_url=storage.create_presigned_upload(output_key, expires_in=3600)["url"],
+                    num_frames=max(17, payload.duration_sec * 8 + 1),
+                )
+            )
+            return WorkerExecutionResult(
+                output_type=response.output_type,
+                s3_key=response.s3_key,
+                duration_sec=payload.duration_sec,
+                fps=response.fps,
+                resolution=response.resolution,
+                backend=response.backend,
+                notes=response.notes,
+            )
         return WorkerExecutionResult(
             output_type="preview_segment",
-            s3_key=f"previews/{payload.project_id}/{payload.shot_id}.mp4",
+            s3_key=payload.preview_output_key or f"previews/{payload.project_id}/{payload.shot_id}.mp4",
             duration_sec=payload.duration_sec,
             fps=24,
             resolution="1024x576",
             backend="ltx",
-            notes="Stub LTX adapter validated payload. Real model execution remains disabled locally.",
+            notes=f"Stub LTX preview adapter validated payload in {payload.render_mode} mode. Real model execution remains disabled locally.",
         )
 
 
@@ -159,3 +187,13 @@ def build_adapter_registry() -> dict[str, WorkerAdapter]:
         for job_type in adapter.supported_job_types:
             registry[job_type] = adapter
     return registry
+
+
+def _compose_render_prompt(payload: RenderWorkerPayload) -> str:
+    parts = [
+        payload.appearance_prompt.strip(),
+        payload.motion_prompt.strip(),
+        payload.camera_prompt.strip(),
+    ]
+    combined = ". ".join(part for part in parts if part)
+    return combined or payload.prompt

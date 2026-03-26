@@ -8,6 +8,8 @@ from text2video.config import Settings
 from text2video.runpod.schemas import (
     InferenceJobAccepted,
     InferenceJobStatus,
+    LtxGenerateRequest,
+    LtxGenerateResponse,
     SdxlGenerateRequest,
     SdxlGenerateResponse,
     WanGenerateRequest,
@@ -41,6 +43,16 @@ class RunpodInferenceClient:
         response.raise_for_status()
         accepted = InferenceJobAccepted.model_validate(response.json())
         return WanGenerateResponse.model_validate(self._wait_for_job(accepted.job_id))
+
+    def generate_ltx_preview(self, request: LtxGenerateRequest) -> LtxGenerateResponse:
+        response = httpx.post(
+            f"{self.base_url}/ltx/generate-preview",
+            json=request.model_dump(),
+            timeout=30,
+        )
+        response.raise_for_status()
+        accepted = InferenceJobAccepted.model_validate(response.json())
+        return LtxGenerateResponse.model_validate(self._wait_for_job(accepted.job_id))
 
     def _wait_for_job(self, job_id: str) -> dict:
         deadline = time.time() + self.timeout

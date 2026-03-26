@@ -24,6 +24,7 @@ mkdir -p \
   /workspace/text2video/runtime \
   /workspace/cache/huggingface \
   /workspace/cache/torch \
+  /workspace/models/ltx \
   /workspace/models/sdxl \
   /workspace/models/wan
 
@@ -61,6 +62,7 @@ grep -v '^flash_attn' /workspace/models/wan/Wan2.2/requirements.txt >/tmp/wan-re
 python -m pip install -r /tmp/wan-requirements-no-flash.txt
 
 huggingface-cli download stabilityai/stable-diffusion-xl-base-1.0 --local-dir /workspace/models/sdxl/stable-diffusion-xl-base-1.0
+huggingface-cli download "${LTX_MODEL_ID:-Lightricks/LTX-2}" --local-dir /workspace/models/ltx/$(basename "${LTX_MODEL_ID:-Lightricks/LTX-2}")
 huggingface-cli download Wan-AI/Wan2.2-TI2V-5B --local-dir /workspace/models/wan/Wan2.2-TI2V-5B
 
 echo "Runpod TI2V service bootstrap completed."

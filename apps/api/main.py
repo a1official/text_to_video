@@ -111,23 +111,35 @@ def create_jobs_from_plan(project_id: str, request: CreateJobsFromPlanRequest) -
 
     created_jobs = []
     for shot in shots:
+        appearance_prompt = shot.get("appearance_prompt") or shot.get("prompt", "")
+        motion_prompt = shot.get("motion_prompt") or shot.get("prompt", "")
+        camera_prompt = shot.get("camera_prompt") or shot.get("camera", "")
+        quality_tier = shot.get("quality_tier", "preview")
         payload = {
             "project_id": project_id,
             "shot_id": shot["shot_id"],
             "sequence_index": shot.get("sequence_index"),
             "summary": plan_context["summary"],
-            "prompt": shot.get("prompt", ""),
-            "camera": shot.get("camera", ""),
+            "prompt": appearance_prompt,
+            "camera": camera_prompt,
+            "appearance_prompt": appearance_prompt,
+            "motion_prompt": motion_prompt,
+            "camera_prompt": camera_prompt,
             "duration_sec": shot.get("duration_sec", 5),
             "shot_type": shot.get("shot_type", "wide"),
             "backend_hint": shot.get("backend_hint", "wan"),
+            "quality_tier": quality_tier,
             "audio_mode": shot.get("audio_mode", "ambience"),
         }
         if request.include_continuity:
             payload["continuity"] = plan_context["continuity"]
 
-        if shot.get("backend_hint", "wan") == "wan":
-            keyframe_output_key = f"keyframes/{project_id}/{shot['shot_id']}.png"
+        keyframe_output_key = f"keyframes/{project_id}/{shot['shot_id']}.png"
+        preview_output_key = f"previews/{project_id}/{shot['shot_id']}.mp4"
+        render_backend = shot.get("backend_hint", "wan")
+        use_reference_lane = render_backend in {"wan", "ltx"}
+
+        if use_reference_lane:
             sdxl_job = job_queue.enqueue(
                 project_id=project_id,
                 shot_id=shot["shot_id"],
@@ -135,6 +147,7 @@ def create_jobs_from_plan(project_id: str, request: CreateJobsFromPlanRequest) -
                 worker_type="wan",
                 payload={
                     **payload,
+                    "prompt": appearance_prompt,
                     "render_mode": "text_to_image",
                     "keyframe_output_key": keyframe_output_key,
                 },
@@ -142,30 +155,53 @@ def create_jobs_from_plan(project_id: str, request: CreateJobsFromPlanRequest) -
             )
             created_jobs.append(job_queue.get_job(sdxl_job["job_id"]))
 
-            wan_job = job_queue.enqueue(
+            ltx_job = job_queue.enqueue(
                 project_id=project_id,
                 shot_id=shot["shot_id"],
-                job_type="generate_segment_wan",
-                worker_type="wan",
+                job_type="generate_preview",
+                worker_type="general",
                 payload={
                     **payload,
-                    "render_mode": "ti2v",
+                    "prompt": _compose_motion_prompt(appearance_prompt, motion_prompt, camera_prompt),
+                    "render_mode": "preview_i2v",
                     "source_image_key": keyframe_output_key,
                     "keyframe_output_key": keyframe_output_key,
+                    "preview_output_key": preview_output_key,
                     "depends_on_job_id": sdxl_job["job_id"],
+                    "promotion_target": "wan" if render_backend == "wan" else "",
                 },
                 priority=request.priority,
             )
-            created_jobs.append(job_queue.get_job(wan_job["job_id"]))
+            created_jobs.append(job_queue.get_job(ltx_job["job_id"]))
+
+            if render_backend == "wan":
+                wan_job = job_queue.enqueue(
+                    project_id=project_id,
+                    shot_id=shot["shot_id"],
+                    job_type="generate_segment_wan",
+                    worker_type="wan",
+                    payload={
+                        **payload,
+                        "prompt": _compose_motion_prompt(appearance_prompt, motion_prompt, camera_prompt),
+                        "render_mode": "ti2v",
+                        "source_image_key": keyframe_output_key,
+                        "keyframe_output_key": keyframe_output_key,
+                        "preview_output_key": preview_output_key,
+                        "preview_job_id": ltx_job["job_id"],
+                        "depends_on_job_id": sdxl_job["job_id"],
+                        "promotion_target": "wan",
+                        "escalation_reason": "hero_lane",
+                    },
+                    priority=request.priority,
+                )
+                created_jobs.append(job_queue.get_job(wan_job["job_id"]))
             continue
 
-        job_type = _job_type_for_backend(shot.get("backend_hint", "wan"))
-        worker_type = _worker_type_for_backend(shot.get("backend_hint", "wan"))
         job = job_queue.enqueue(
             project_id=project_id,
             shot_id=shot["shot_id"],
-            job_type=job_type,
-            worker_type=worker_type,
+            job_type=_job_type_for_backend(render_backend),
+            worker_type=_worker_type_for_backend(render_backend),
             payload=payload,
             priority=request.priority,
         )
@@ -191,7 +227,16 @@ def create_stitch_plan(project_id: str, request: CreateStitchPlanRequest) -> Sti
         for job in project_jobs
         if job.get("shot_id") and job.get("job_type") in {"generate_segment_wan", "generate_segment_humo", "generate_preview"}
     ]
-    jobs_by_shot = {job["shot_id"]: job for job in render_jobs}
+    jobs_by_shot: dict[str, dict] = {}
+    job_rank = {
+        "generate_segment_wan": 3,
+        "generate_segment_humo": 3,
+        "generate_preview": 1,
+    }
+    for job in render_jobs:
+        existing = jobs_by_shot.get(job["shot_id"])
+        if not existing or job_rank.get(job["job_type"], 0) >= job_rank.get(existing["job_type"], 0):
+            jobs_by_shot[job["shot_id"]] = job
 
     manifest_segments = []
     for shot in shots:
@@ -361,3 +406,8 @@ def _worker_type_for_backend(backend_hint: str) -> str:
     if backend_hint in {"wan", "humo"}:
         return backend_hint
     return "general"
+
+
+def _compose_motion_prompt(appearance_prompt: str, motion_prompt: str, camera_prompt: str) -> str:
+    parts = [part.strip() for part in [appearance_prompt, motion_prompt, camera_prompt] if part and part.strip()]
+    return ". ".join(parts)

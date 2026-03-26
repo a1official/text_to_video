@@ -26,6 +26,32 @@ class SdxlGenerateResponse(BaseModel):
     notes: str = ""
 
 
+class LtxGenerateRequest(BaseModel):
+    project_id: str
+    shot_id: str
+    prompt: str
+    source_image_key: str
+    source_image_url: str
+    output_key: str
+    upload_url: str
+    width: int = 768
+    height: int = 512
+    num_frames: int = 17
+    num_inference_steps: int = 8
+    guidance_scale: float = 3.0
+    negative_prompt: str = "worst quality, inconsistent motion, blurry, jittery, distorted, static"
+    seed: int = 0
+
+
+class LtxGenerateResponse(BaseModel):
+    output_type: str = "preview_segment"
+    s3_key: str
+    backend: str = "ltx"
+    resolution: str
+    fps: int = 24
+    notes: str = ""
+
+
 class WanGenerateRequest(BaseModel):
     project_id: str
     shot_id: str

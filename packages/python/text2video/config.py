@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     runpod_network_volume_id: str | None = None
     runpod_inference_base_url: str | None = None
     runpod_request_timeout_sec: int = 3600
+    ltx_model_id: str = "Lightricks/LTX-2"
 
     worker_id: str = "local-worker"
     worker_type: Literal["general", "wan", "humo", "stitch"] = "general"
