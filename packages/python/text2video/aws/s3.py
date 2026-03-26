@@ -1,5 +1,7 @@
 from urllib.parse import urlparse
 
+from botocore.config import Config
+
 from text2video.aws.session import build_boto3_session
 from text2video.config import Settings
 
@@ -8,7 +10,10 @@ class S3Storage:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.session = build_boto3_session(settings)
-        self.client = self.session.client("s3")
+        self.client = self.session.client(
+            "s3",
+            config=Config(signature_version="s3v4"),
+        )
 
     def make_key(self, project_id: str, prefix: str, filename: str) -> str:
         return f"{prefix}/{project_id}/{filename}"

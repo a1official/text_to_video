@@ -176,11 +176,18 @@ def _generate_wan_ti2v_sync(request: WanGenerateRequest) -> WanGenerateResponse:
         if request.sample_shift is not None:
             command.extend(["--sample_shift", str(request.sample_shift)])
 
-        subprocess.run(
+        completed = subprocess.run(
             command,
             cwd=str(wan_repo),
             check=True,
+            capture_output=True,
+            text=True,
         )
+
+        if completed.stdout:
+            print(completed.stdout[-4000:])
+        if completed.stderr:
+            print(completed.stderr[-4000:])
 
         _upload_file(request.upload_url, output_video, "video/mp4")
 
