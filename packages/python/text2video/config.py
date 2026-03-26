@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     allowed_job_types: list[str] = Field(
         default_factory=lambda: [
             "plan_project",
-            "generate_keyframe_qwen",
+            "generate_keyframe_sdxl",
             "generate_preview",
             "generate_segment_wan",
             "generate_segment_humo",

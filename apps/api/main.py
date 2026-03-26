@@ -128,10 +128,10 @@ def create_jobs_from_plan(project_id: str, request: CreateJobsFromPlanRequest) -
 
         if shot.get("backend_hint", "wan") == "wan":
             keyframe_output_key = f"keyframes/{project_id}/{shot['shot_id']}.png"
-            qwen_job = job_queue.enqueue(
+            sdxl_job = job_queue.enqueue(
                 project_id=project_id,
                 shot_id=shot["shot_id"],
-                job_type="generate_keyframe_qwen",
+                job_type="generate_keyframe_sdxl",
                 worker_type="wan",
                 payload={
                     **payload,
@@ -140,7 +140,7 @@ def create_jobs_from_plan(project_id: str, request: CreateJobsFromPlanRequest) -
                 },
                 priority=request.priority,
             )
-            created_jobs.append(job_queue.get_job(qwen_job["job_id"]))
+            created_jobs.append(job_queue.get_job(sdxl_job["job_id"]))
 
             wan_job = job_queue.enqueue(
                 project_id=project_id,
@@ -152,7 +152,7 @@ def create_jobs_from_plan(project_id: str, request: CreateJobsFromPlanRequest) -
                     "render_mode": "ti2v",
                     "source_image_key": keyframe_output_key,
                     "keyframe_output_key": keyframe_output_key,
-                    "depends_on_job_id": qwen_job["job_id"],
+                    "depends_on_job_id": sdxl_job["job_id"],
                 },
                 priority=request.priority,
             )

@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from text2video.aws.s3 import S3Storage
 from text2video.config import get_settings
 from text2video.runpod.client import RunpodInferenceClient
-from text2video.runpod.schemas import QwenGenerateRequest, WanGenerateRequest
+from text2video.runpod.schemas import SdxlGenerateRequest, WanGenerateRequest
 from text2video.worker.contracts import RenderWorkerPayload, StitchWorkerPayload, WorkerExecutionResult
 from text2video.worker.stitch import run_ffmpeg_stitch
 
@@ -19,9 +19,9 @@ class WorkerAdapter(ABC):
         raise NotImplementedError
 
 
-class QwenImageAdapter(WorkerAdapter):
-    name = "qwen-image"
-    supported_job_types = {"generate_keyframe_qwen"}
+class SdxlImageAdapter(WorkerAdapter):
+    name = "sdxl"
+    supported_job_types = {"generate_keyframe_sdxl"}
 
     def execute(self, job: dict) -> WorkerExecutionResult:
         payload = RenderWorkerPayload.model_validate(job.get("payload", {}))
@@ -29,8 +29,8 @@ class QwenImageAdapter(WorkerAdapter):
         if settings.runpod_inference_base_url:
             storage = S3Storage(settings)
             output_key = payload.keyframe_output_key or f"keyframes/{payload.project_id}/{payload.shot_id}.png"
-            response = RunpodInferenceClient(settings).generate_qwen_keyframe(
-                QwenGenerateRequest(
+            response = RunpodInferenceClient(settings).generate_sdxl_keyframe(
+                SdxlGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
                     prompt=payload.prompt,
@@ -49,8 +49,8 @@ class QwenImageAdapter(WorkerAdapter):
             output_type="keyframe_image",
             s3_key=payload.keyframe_output_key or f"keyframes/{payload.project_id}/{payload.shot_id}.png",
             resolution="1280x720",
-            backend="qwen-image",
-            notes="Stub Qwen image adapter validated payload. Real image generation remains disabled locally.",
+            backend="sdxl",
+            notes="Stub SDXL image adapter validated payload. Real image generation remains disabled locally.",
         )
 
 
@@ -153,7 +153,7 @@ class StitchAdapter(WorkerAdapter):
 
 
 def build_adapter_registry() -> dict[str, WorkerAdapter]:
-    adapters = [QwenImageAdapter(), WanAdapter(), HumoAdapter(), LtxAdapter(), StitchAdapter()]
+    adapters = [SdxlImageAdapter(), WanAdapter(), HumoAdapter(), LtxAdapter(), StitchAdapter()]
     registry: dict[str, WorkerAdapter] = {}
     for adapter in adapters:
         for job_type in adapter.supported_job_types:

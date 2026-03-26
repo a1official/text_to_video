@@ -5,7 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-class QwenGenerateRequest(BaseModel):
+class SdxlGenerateRequest(BaseModel):
     project_id: str
     shot_id: str
     prompt: str
@@ -15,13 +15,13 @@ class QwenGenerateRequest(BaseModel):
     height: int = 704
     negative_prompt: str = ""
     num_inference_steps: int = 30
-    true_cfg_scale: float = 4.0
+    guidance_scale: float = 7.0
 
 
-class QwenGenerateResponse(BaseModel):
+class SdxlGenerateResponse(BaseModel):
     output_type: str = "keyframe_image"
     s3_key: str
-    backend: str = "qwen-image"
+    backend: str = "sdxl"
     resolution: str
     notes: str = ""
 
@@ -53,7 +53,7 @@ class WanGenerateResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str = "ok"
-    qwen_loaded: bool = False
+    sdxl_loaded: bool = False
     wan_repo_present: bool = False
 
 

@@ -8,8 +8,8 @@ from text2video.config import Settings
 from text2video.runpod.schemas import (
     InferenceJobAccepted,
     InferenceJobStatus,
-    QwenGenerateRequest,
-    QwenGenerateResponse,
+    SdxlGenerateRequest,
+    SdxlGenerateResponse,
     WanGenerateRequest,
     WanGenerateResponse,
 )
@@ -22,15 +22,15 @@ class RunpodInferenceClient:
         self.base_url = settings.runpod_inference_base_url.rstrip("/")
         self.timeout = settings.runpod_request_timeout_sec
 
-    def generate_qwen_keyframe(self, request: QwenGenerateRequest) -> QwenGenerateResponse:
+    def generate_sdxl_keyframe(self, request: SdxlGenerateRequest) -> SdxlGenerateResponse:
         response = httpx.post(
-            f"{self.base_url}/qwen/generate-keyframe",
+            f"{self.base_url}/sdxl/generate-keyframe",
             json=request.model_dump(),
             timeout=30,
         )
         response.raise_for_status()
         accepted = InferenceJobAccepted.model_validate(response.json())
-        return QwenGenerateResponse.model_validate(self._wait_for_job(accepted.job_id))
+        return SdxlGenerateResponse.model_validate(self._wait_for_job(accepted.job_id))
 
     def generate_wan_ti2v(self, request: WanGenerateRequest) -> WanGenerateResponse:
         response = httpx.post(

@@ -24,7 +24,7 @@ mkdir -p \
   /workspace/text2video/runtime \
   /workspace/cache/huggingface \
   /workspace/cache/torch \
-  /workspace/models/qwen \
+  /workspace/models/sdxl \
   /workspace/models/wan
 
 cat >/etc/profile.d/text2video-runpod.sh <<'EOF'
@@ -38,12 +38,6 @@ if [ ! -d /workspace/models/wan/Wan2.2/.git ]; then
   git clone https://github.com/Wan-Video/Wan2.2.git /workspace/models/wan/Wan2.2
 else
   git -C /workspace/models/wan/Wan2.2 pull --ff-only
-fi
-
-if [ ! -d /workspace/models/qwen/Qwen-Image/.git ]; then
-  git clone https://github.com/QwenLM/Qwen-Image.git /workspace/models/qwen/Qwen-Image
-else
-  git -C /workspace/models/qwen/Qwen-Image pull --ff-only
 fi
 
 python3 -m venv /workspace/text2video/venv
@@ -60,7 +54,7 @@ python -m pip install \
   sentencepiece
 python -m pip install -r /workspace/models/wan/Wan2.2/requirements.txt
 
-huggingface-cli download Qwen/Qwen-Image-2512 --local-dir /workspace/models/qwen/Qwen-Image-2512
+huggingface-cli download stabilityai/stable-diffusion-xl-base-1.0 --local-dir /workspace/models/sdxl/stable-diffusion-xl-base-1.0
 huggingface-cli download Wan-AI/Wan2.2-TI2V-5B --local-dir /workspace/models/wan/Wan2.2-TI2V-5B
 
 echo "Runpod TI2V service bootstrap completed."

@@ -17,8 +17,8 @@ from text2video.runpod.schemas import (
     HealthResponse,
     InferenceJobAccepted,
     InferenceJobStatus,
-    QwenGenerateRequest,
-    QwenGenerateResponse,
+    SdxlGenerateRequest,
+    SdxlGenerateResponse,
     WanGenerateRequest,
     WanGenerateResponse,
 )
@@ -85,25 +85,27 @@ def _run_job(job_id: str, fn, request) -> None:
 
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    qwen_cache = Path(os.environ.get("HF_HOME", "/workspace/cache/huggingface")) / "hub"
+    sdxl_model_dir = Path("/workspace/models/sdxl/stable-diffusion-xl-base-1.0")
     wan_repo = Path("/workspace/models/wan/Wan2.2")
     return HealthResponse(
         status="ok",
-        qwen_loaded=qwen_cache.exists(),
+        sdxl_loaded=sdxl_model_dir.exists(),
         wan_repo_present=wan_repo.exists(),
     )
 
 
-def _generate_qwen_keyframe_sync(request: QwenGenerateRequest) -> QwenGenerateResponse:
+def _generate_sdxl_keyframe_sync(request: SdxlGenerateRequest) -> SdxlGenerateResponse:
     import torch
-    from diffusers import QwenImagePipeline
+    from diffusers import StableDiffusionXLPipeline
 
     _cleanup_cuda()
-    qwen_model_dir = "/workspace/models/qwen/Qwen-Image-2512"
-    pipe = QwenImagePipeline.from_pretrained(
-        qwen_model_dir,
-        torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+    sdxl_model_dir = "/workspace/models/sdxl/stable-diffusion-xl-base-1.0"
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        sdxl_model_dir,
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         local_files_only=True,
+        use_safetensors=True,
+        variant="fp16" if torch.cuda.is_available() else None,
     )
     pipe = pipe.to("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -113,7 +115,7 @@ def _generate_qwen_keyframe_sync(request: QwenGenerateRequest) -> QwenGenerateRe
         width=request.width,
         height=request.height,
         num_inference_steps=request.num_inference_steps,
-        true_cfg_scale=request.true_cfg_scale,
+        guidance_scale=request.guidance_scale,
     ).images[0]
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -124,10 +126,10 @@ def _generate_qwen_keyframe_sync(request: QwenGenerateRequest) -> QwenGenerateRe
     del image
     del pipe
     _cleanup_cuda()
-    return QwenGenerateResponse(
+    return SdxlGenerateResponse(
         s3_key=request.output_key,
         resolution=f"{request.width}x{request.height}",
-        notes="Qwen-Image keyframe generated and uploaded to S3.",
+        notes="SDXL keyframe generated and uploaded to S3.",
     )
 
 
@@ -189,11 +191,11 @@ def _generate_wan_ti2v_sync(request: WanGenerateRequest) -> WanGenerateResponse:
     )
 
 
-@app.post("/qwen/generate-keyframe", response_model=InferenceJobAccepted)
-def generate_qwen_keyframe(request: QwenGenerateRequest) -> InferenceJobAccepted:
+@app.post("/sdxl/generate-keyframe", response_model=InferenceJobAccepted)
+def generate_sdxl_keyframe(request: SdxlGenerateRequest) -> InferenceJobAccepted:
     job_id = str(uuid4())
     _set_job(job_id, status="queued")
-    threading.Thread(target=_run_job, args=(job_id, _generate_qwen_keyframe_sync, request), daemon=True).start()
+    threading.Thread(target=_run_job, args=(job_id, _generate_sdxl_keyframe_sync, request), daemon=True).start()
     return InferenceJobAccepted(job_id=job_id)
 
 
