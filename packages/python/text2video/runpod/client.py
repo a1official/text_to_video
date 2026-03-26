@@ -45,11 +45,20 @@ class RunpodInferenceClient:
     def _wait_for_job(self, job_id: str) -> dict:
         deadline = time.time() + self.timeout
         while time.time() < deadline:
-            response = httpx.get(
-                f"{self.base_url}/jobs/{job_id}",
-                timeout=30,
-            )
-            response.raise_for_status()
+            try:
+                response = httpx.get(
+                    f"{self.base_url}/jobs/{job_id}",
+                    timeout=30,
+                )
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code in {502, 503, 504}:
+                    time.sleep(10)
+                    continue
+                raise
+            except httpx.TransportError:
+                time.sleep(10)
+                continue
             status = InferenceJobStatus.model_validate(response.json())
             if status.status == "completed":
                 return status.result or {}
