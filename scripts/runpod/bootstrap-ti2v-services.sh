@@ -49,6 +49,8 @@ fi
 python3 -m venv /workspace/text2video/venv
 source /workspace/text2video/venv/bin/activate
 python -m pip install --upgrade pip setuptools wheel
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 \
+  torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0
 python -m pip install -e /workspace/text2video/app
 python -m pip install \
   "huggingface_hub[cli]" \

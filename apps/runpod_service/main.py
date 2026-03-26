@@ -99,9 +99,11 @@ def _generate_qwen_keyframe_sync(request: QwenGenerateRequest) -> QwenGenerateRe
     from diffusers import QwenImagePipeline
 
     _cleanup_cuda()
+    qwen_model_dir = "/workspace/models/qwen/Qwen-Image-2512"
     pipe = QwenImagePipeline.from_pretrained(
-        "Qwen/Qwen-Image-2512",
+        qwen_model_dir,
         torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
+        local_files_only=True,
     )
     pipe = pipe.to("cuda" if torch.cuda.is_available() else "cpu")
 
