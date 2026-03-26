@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signal Foundry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Syne:wght@500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <div class="grain"></div>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Signal Foundry</p>
+        <h1>Plan, queue, and stitch cinematic AI video systems.</h1>
+        <p class="lede">
+          A control room for the Seedance-like pipeline: project intake, Bedrock planning, shot jobs,
+          stitch manifests, and output tracking.
+        </p>
+      </section>
+
+      <section class="grid">
+        <article class="panel panel-accent">
+          <h2>Create Project</h2>
+          <form id="project-form" class="stack">
+            <input name="title" placeholder="Project title" required />
+            <input name="created_by" placeholder="Created by" value="akash" required />
+            <input name="style_profile" placeholder="Style profile (optional)" />
+            <button type="submit">Create Project</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <h2>Plan Shots</h2>
+          <form id="plan-form" class="stack">
+            <input name="project_id" placeholder="Project ID" required />
+            <textarea
+              name="prompt"
+              rows="5"
+              placeholder="Describe the scene, motion, speaking moments, and cinematic intent."
+              required
+            ></textarea>
+            <button type="submit">Generate Plan</button>
+          </form>
+        </article>
+      </section>
+
+      <section class="grid grid-wide">
+        <article class="panel">
+          <h2>Pipeline Actions</h2>
+          <div class="stack">
+            <form id="jobs-form" class="inline-form">
+              <input name="project_id" placeholder="Project ID" required />
+              <button type="submit">Queue Jobs From Plan</button>
+            </form>
+            <form id="stitch-form" class="inline-form">
+              <input name="project_id" placeholder="Project ID" required />
+              <input name="scene_id" placeholder="Scene ID" value="scene001" required />
+              <button type="submit">Create Stitch Plan</button>
+            </form>
+            <form id="upload-form" class="inline-form">
+              <input name="project_id" placeholder="Project ID" required />
+              <input name="filename" placeholder="Filename" value="ref.png" required />
+              <button type="submit">Get Upload URL</button>
+            </form>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Inspect Project</h2>
+          <form id="inspect-form" class="inline-form">
+            <input name="project_id" placeholder="Project ID" required />
+            <button type="submit">Load Project State</button>
+          </form>
+          <div class="chips">
+            <button class="secondary" data-target="shots">Shots</button>
+            <button class="secondary" data-target="jobs">Jobs</button>
+            <button class="secondary" data-target="manifests">Manifests</button>
+            <button class="secondary" data-target="outputs">Outputs</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="results">
+        <article class="panel terminal">
+          <div class="terminal-bar">
+            <span></span><span></span><span></span>
+          </div>
+          <pre id="console">Ready.</pre>
+        </article>
+      </section>
+    </main>
+
+    <script src="/ui/app.js"></script>
+  </body>
+</html>
