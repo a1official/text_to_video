@@ -61,8 +61,9 @@ def _upload_file(upload_url: str, file_path: Path, content_type: str) -> None:
 def _download_file(download_url: str, target_path: Path) -> None:
     with httpx.stream("GET", download_url, timeout=None) as response:
         if response.is_error:
+            body = response.read().decode("utf-8", errors="replace")
             raise RuntimeError(
-                f"Download failed with status {response.status_code}: {response.text[:1000]}"
+                f"Download failed with status {response.status_code}: {body[:1000]}"
             )
         with target_path.open("wb") as file_handle:
             for chunk in response.iter_bytes():
