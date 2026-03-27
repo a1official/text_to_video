@@ -26,10 +26,11 @@ class SdxlImageAdapter(WorkerAdapter):
     def execute(self, job: dict) -> WorkerExecutionResult:
         payload = RenderWorkerPayload.model_validate(job.get("payload", {}))
         settings = get_settings()
-        if settings.runpod_inference_base_url:
+        wan_base_url = settings.runpod_wan_inference_base_url or settings.runpod_inference_base_url
+        if wan_base_url:
             storage = S3Storage(settings)
             output_key = payload.keyframe_output_key or f"keyframes/{payload.project_id}/{payload.shot_id}.png"
-            response = RunpodInferenceClient(settings).generate_sdxl_keyframe(
+            response = RunpodInferenceClient(settings, base_url=wan_base_url).generate_sdxl_keyframe(
                 SdxlGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
@@ -63,10 +64,11 @@ class WanAdapter(WorkerAdapter):
         if payload.render_mode == "ti2v" and not payload.source_image_key:
             raise ValueError("Wan TI2V jobs require source_image_key")
         settings = get_settings()
-        if settings.runpod_inference_base_url:
+        wan_base_url = settings.runpod_wan_inference_base_url or settings.runpod_inference_base_url
+        if wan_base_url:
             storage = S3Storage(settings)
             output_key = f"renders/{payload.project_id}/{payload.shot_id}.mp4"
-            response = RunpodInferenceClient(settings).generate_wan_ti2v(
+            response = RunpodInferenceClient(settings, base_url=wan_base_url).generate_wan_ti2v(
                 WanGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,
@@ -123,10 +125,11 @@ class LtxAdapter(WorkerAdapter):
     def execute(self, job: dict) -> WorkerExecutionResult:
         payload = RenderWorkerPayload.model_validate(job.get("payload", {}))
         settings = get_settings()
-        if settings.runpod_inference_base_url:
+        ltx_base_url = settings.runpod_ltx_inference_base_url
+        if ltx_base_url:
             storage = S3Storage(settings)
             output_key = payload.preview_output_key or f"previews/{payload.project_id}/{payload.shot_id}.mp4"
-            response = RunpodInferenceClient(settings).generate_ltx_preview(
+            response = RunpodInferenceClient(settings, base_url=ltx_base_url).generate_ltx_preview(
                 LtxGenerateRequest(
                     project_id=payload.project_id,
                     shot_id=payload.shot_id,

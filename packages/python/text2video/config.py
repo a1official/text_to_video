@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     runpod_pod_id: str | None = None
     runpod_network_volume_id: str | None = None
     runpod_inference_base_url: str | None = None
+    runpod_wan_inference_base_url: str | None = None
+    runpod_ltx_inference_base_url: str | None = None
     runpod_request_timeout_sec: int = 3600
     ltx_model_id: str = "Lightricks/LTX-2"
 

@@ -18,10 +18,11 @@ from text2video.runpod.schemas import (
 
 
 class RunpodInferenceClient:
-    def __init__(self, settings: Settings) -> None:
-        if not settings.runpod_inference_base_url:
-            raise ValueError("RUNPOD_INFERENCE_BASE_URL is not configured")
-        self.base_url = settings.runpod_inference_base_url.rstrip("/")
+    def __init__(self, settings: Settings, base_url: str | None = None) -> None:
+        resolved_base_url = (base_url or settings.runpod_inference_base_url or "").rstrip("/")
+        if not resolved_base_url:
+            raise ValueError("Runpod inference base URL is not configured")
+        self.base_url = resolved_base_url
         self.timeout = settings.runpod_request_timeout_sec
 
     def generate_sdxl_keyframe(self, request: SdxlGenerateRequest) -> SdxlGenerateResponse:
