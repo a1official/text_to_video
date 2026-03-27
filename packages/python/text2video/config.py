@@ -42,7 +42,15 @@ class Settings(BaseSettings):
     runpod_wan_inference_base_url: str | None = None
     runpod_ltx_inference_base_url: str | None = None
     runpod_request_timeout_sec: int = 3600
-    ltx_model_id: str = "Lightricks/LTX-2"
+    ltx_model_id: str = "Lightricks/LTX-2.3"
+    ltx_repo_root: str = "/workspace/text2video/ltx2-official"
+    ltx_python_bin: str = "/workspace/text2video/ltx2-official/.venv/bin/python"
+    ltx_assets_root: str = "/workspace/models/ltx/LTX-2.3"
+    ltx_checkpoint_path: str = "/workspace/models/ltx/LTX-2.3/ltx-2.3-22b-distilled.safetensors"
+    ltx_spatial_upsampler_path: str = (
+        "/workspace/models/ltx/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.0.safetensors"
+    )
+    ltx_gemma_root: str = "/workspace/models/ltx/gemma-3-12b-it-qat-q4_0-unquantized"
 
     worker_id: str = "local-worker"
     worker_type: Literal["general", "wan", "humo", "stitch"] = "general"

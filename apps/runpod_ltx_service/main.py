@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import gc
+import os
+import subprocess
 import tempfile
 import threading
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
 import httpx
+from fastapi import FastAPI, HTTPException
 
 from text2video.config import get_settings
 from text2video.runpod.schemas import (
@@ -85,25 +87,55 @@ def _run_job(job_id: str, fn, request) -> None:
         _set_job(job_id, status="failed", error=str(exc))
 
 
+def _required_paths() -> list[Path]:
+    return [
+        Path(settings.ltx_repo_root),
+        Path(settings.ltx_python_bin),
+        Path(settings.ltx_checkpoint_path),
+        Path(settings.ltx_spatial_upsampler_path),
+        Path(settings.ltx_gemma_root),
+    ]
+
+
+def _validate_request(request: LtxGenerateRequest) -> None:
+    if request.width % 64 != 0 or request.height % 64 != 0:
+        raise ValueError("LTX width and height must be divisible by 64")
+    if request.num_frames < 9 or (request.num_frames - 1) % 8 != 0:
+        raise ValueError("LTX num_frames must satisfy 8k+1")
+
+
+def _run_official_ltx(cmd: list[str], cwd: Path) -> None:
+    completed = subprocess.run(
+        cmd,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=os.environ.copy(),
+    )
+    if completed.returncode == 0:
+        return
+    output = "\n".join(
+        part.strip() for part in [completed.stdout[-3000:], completed.stderr[-3000:]] if part.strip()
+    )
+    raise RuntimeError(f"Official LTX runner failed with exit code {completed.returncode}:\n{output}")
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    ltx_model_dir = Path("/workspace/models/ltx") / Path(settings.ltx_model_id).name
     return HealthResponse(
         status="ok",
-        sdxl_loaded=ltx_model_dir.exists(),
+        sdxl_loaded=all(path.exists() for path in _required_paths()),
         wan_repo_present=False,
     )
 
 
 def _generate_ltx_preview_sync(request: LtxGenerateRequest) -> LtxGenerateResponse:
-    import torch
-    from diffusers import LTX2ImageToVideoPipeline
-    from diffusers.utils import export_to_video
-    from PIL import Image
-
+    _validate_request(request)
     _cleanup_cuda()
 
-    model_dir = Path("/workspace/models/ltx") / Path(settings.ltx_model_id).name
+    repo_root = Path(settings.ltx_repo_root)
+    python_bin = Path(settings.ltx_python_bin)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir_path = Path(tmpdir)
@@ -111,41 +143,44 @@ def _generate_ltx_preview_sync(request: LtxGenerateRequest) -> LtxGenerateRespon
         output_video = tmpdir_path / f"{request.shot_id}.mp4"
         _download_file(request.source_image_url, input_image)
 
-        pipe = LTX2ImageToVideoPipeline.from_pretrained(
-            str(model_dir),
-            torch_dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32,
-            local_files_only=True,
-        )
-        if torch.cuda.is_available():
-            pipe.enable_model_cpu_offload()
-        image = Image.open(input_image).convert("RGB")
-        generator = torch.Generator("cuda" if torch.cuda.is_available() else "cpu").manual_seed(request.seed)
+        command = [
+            str(python_bin),
+            "-m",
+            "ltx_pipelines.distilled",
+            "--distilled-checkpoint-path",
+            settings.ltx_checkpoint_path,
+            "--spatial-upsampler-path",
+            settings.ltx_spatial_upsampler_path,
+            "--gemma-root",
+            settings.ltx_gemma_root,
+            "--prompt",
+            request.prompt,
+            "--output-path",
+            str(output_video),
+            "--seed",
+            str(request.seed),
+            "--height",
+            str(request.height),
+            "--width",
+            str(request.width),
+            "--num-frames",
+            str(request.num_frames),
+            "--frame-rate",
+            "24",
+            "--image",
+            str(input_image),
+            "0",
+            "1.0",
+        ]
 
-        video, _audio = pipe(
-            image=image,
-            prompt=request.prompt,
-            negative_prompt=request.negative_prompt,
-            width=request.width,
-            height=request.height,
-            num_frames=request.num_frames,
-            frame_rate=24.0,
-            num_inference_steps=request.num_inference_steps,
-            guidance_scale=request.guidance_scale,
-            generator=generator,
-            output_type="pil",
-            return_dict=False,
-        )
-        export_to_video(video[0], str(output_video), fps=24)
+        _run_official_ltx(command, repo_root)
         _upload_file(request.upload_url, output_video, "video/mp4")
-
-        del image
-        del pipe
 
     _cleanup_cuda()
     return LtxGenerateResponse(
         s3_key=request.output_key,
         resolution=f"{request.width}x{request.height}",
-        notes=f"LTX preview generated with model {settings.ltx_model_id} and uploaded to S3.",
+        notes="Official LTX-2.3 distilled pipeline generated preview video with audio and uploaded it to S3.",
     )
 
 
