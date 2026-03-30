@@ -240,21 +240,25 @@ def create_stitch_plan(project_id: str, request: CreateStitchPlanRequest) -> Sti
 
     manifest_segments = []
     for shot in shots:
+        selected_job = jobs_by_shot.get(shot["shot_id"], {})
+        selected_job_type = selected_job.get("job_type", "")
+        if selected_job_type == "generate_preview":
+            output_key = f"previews/{project_id}/{shot['shot_id']}.mp4"
+        elif selected_job:
+            output_key = f"renders/{project_id}/{shot['shot_id']}.mp4"
+        else:
+            output_key = ""
         transition = "crossfade" if shot.get("shot_type") == "transition" else "hard_cut"
         manifest_segments.append(
             {
                 "shot_id": shot["shot_id"],
                 "sequence_index": shot.get("sequence_index"),
-                "job_id": jobs_by_shot.get(shot["shot_id"], {}).get("job_id", ""),
-                "job_type": jobs_by_shot.get(shot["shot_id"], {}).get("job_type", ""),
+                "job_id": selected_job.get("job_id", ""),
+                "job_type": selected_job_type,
                 "backend_hint": shot.get("backend_hint", "wan"),
                 "duration_sec": shot.get("duration_sec", 5),
                 "transition": transition,
-                "output_key": (
-                    f"renders/{project_id}/{shot['shot_id']}.mp4"
-                    if jobs_by_shot.get(shot["shot_id"])
-                    else ""
-                ),
+                "output_key": output_key,
             }
         )
 

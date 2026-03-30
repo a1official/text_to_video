@@ -39,11 +39,8 @@ def run_ffmpeg_stitch(settings: Settings, payload: StitchWorkerPayload) -> Path:
             "0",
             "-i",
             str(concat_path),
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            "-an",
+            "-c",
+            "copy",
             str(output_path),
         ]
     else:
@@ -87,11 +84,15 @@ def _build_xfade_command(segment_paths: list[Path], payload: StitchWorkerPayload
             ";".join(filters),
             "-map",
             current_label,
+            "-map",
+            "0:a?",
             "-c:v",
             "libx264",
+            "-c:a",
+            "aac",
             "-pix_fmt",
             "yuv420p",
-            "-an",
+            "-shortest",
             str(output_path),
         ]
     )
