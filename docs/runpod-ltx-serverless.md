@@ -45,6 +45,35 @@ docker build -f .\infra\runpod-serverless\ltx\Dockerfile -t <dockerhub-user>/tex
 docker push <dockerhub-user>/text2video-ltx-serverless:latest
 ```
 
+## Build from GitHub instead of local Docker
+
+The repo now includes:
+
+- [.github/workflows/build-runpod-serverless-ltx.yml](D:\openCLI\text 2 video\.github\workflows\build-runpod-serverless-ltx.yml)
+
+This workflow builds the serverless image from GitHub and pushes it to Docker Hub.
+
+### Required GitHub secrets
+
+Add these repository secrets in GitHub:
+
+```text
+DOCKERHUB_USERNAME
+DOCKERHUB_TOKEN
+```
+
+### How to run it
+
+1. Push the branch to GitHub.
+2. Open the GitHub Actions tab.
+3. Run `Build Runpod Serverless LTX Image`.
+4. Optional: provide an `image_tag` such as `latest` or `v1`.
+
+Published tags:
+
+- `<dockerhub-user>/text2video-ltx-serverless:<image_tag>`
+- `<dockerhub-user>/text2video-ltx-serverless:sha-<git-sha>`
+
 ## Create the Runpod Serverless endpoint
 
 In Runpod Serverless:

@@ -86,6 +86,8 @@ Notes:
   - Polly voiceover mux
 - Serverless deployment guide:
   [runpod-ltx-serverless.md](D:\openCLI\text 2 video\docs\runpod-ltx-serverless.md)
+- GitHub Actions image build workflow:
+  [.github/workflows/build-runpod-serverless-ltx.yml](D:\openCLI\text 2 video\.github\workflows\build-runpod-serverless-ltx.yml)
 
 ## Exact Rebuild Steps
 
