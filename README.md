@@ -57,3 +57,30 @@ The local worker is limited to orchestration-safe tasks such as:
 Model execution jobs are intentionally blocked until you explicitly decide to attach a real Runpod GPU worker later.
 
 Model-specific adapters are the next layer to add.
+
+## Runpod Rebuild Notes
+
+Validated commercial-generation pod:
+
+- GPU: `NVIDIA RTX 6000 Ada Generation`
+- VRAM: `48 GB`
+- Recommended image: `runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04`
+
+Validated LTX asset links used by the commercial pipeline:
+
+- LTX checkpoint:
+  [Lightricks/LTX-2.3 - ltx-2.3-22b-distilled.safetensors](https://huggingface.co/Lightricks/LTX-2.3/blob/main/ltx-2.3-22b-distilled.safetensors)
+- LTX spatial upscaler:
+  [Lightricks/LTX-2.3 - ltx-2.3-spatial-upscaler-x2-1.0.safetensors](https://huggingface.co/Lightricks/LTX-2.3/blob/main/ltx-2.3-spatial-upscaler-x2-1.0.safetensors)
+- Gemma text encoder assets:
+  [google/gemma-3-12b-it-qat-q4_0-unquantized](https://huggingface.co/google/gemma-3-12b-it-qat-q4_0-unquantized)
+
+Notes:
+
+- The Gemma repo is gated, so Hugging Face login is required on the pod before download.
+- The bootstrap script [bootstrap-ltx-service.sh](D:\openCLI\text 2 video\scripts\runpod\bootstrap-ltx-service.sh) already includes the temp/cache redirection needed to avoid root-disk extraction failures on Runpod.
+- The commercial runner [run_ltx_commercial.py](D:\openCLI\text 2 video\scripts\run_ltx_commercial.py) is the reproducible entrypoint for:
+  - Bedrock script generation
+  - LTX shot generation
+  - FFmpeg stitch
+  - Polly voiceover mux
