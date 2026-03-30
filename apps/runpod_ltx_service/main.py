@@ -10,7 +10,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response, status
 
 from text2video.config import get_settings
 from text2video.runpod.schemas import (
@@ -26,6 +26,7 @@ settings = get_settings()
 app = FastAPI(title="Runpod LTX Service", version="0.1.0")
 jobs: dict[str, dict] = {}
 jobs_lock = threading.Lock()
+worker_state = {"ready": False, "error": ""}
 
 
 def _cleanup_cuda() -> None:
@@ -98,6 +99,17 @@ def _required_paths() -> list[Path]:
     ]
 
 
+def _mark_worker_ready() -> None:
+    missing = [str(path) for path in _required_paths() if not path.exists()]
+    if missing:
+        worker_state["ready"] = False
+        worker_state["error"] = f"Missing required LTX paths: {', '.join(missing)}"
+        return
+
+    worker_state["ready"] = True
+    worker_state["error"] = ""
+
+
 def _validate_request(request: LtxGenerateRequest) -> None:
     if request.width % 64 != 0 or request.height % 64 != 0:
         raise ValueError("LTX width and height must be divisible by 64")
@@ -122,10 +134,25 @@ def _run_official_ltx(cmd: list[str], cwd: Path) -> None:
     raise RuntimeError(f"Official LTX runner failed with exit code {completed.returncode}:\n{output}")
 
 
+@app.on_event("startup")
+def startup() -> None:
+    threading.Thread(target=_mark_worker_ready, daemon=True).start()
+
+
+@app.get("/ping")
+def ping(response: Response) -> dict[str, str]:
+    if worker_state["ready"]:
+        response.status_code = status.HTTP_200_OK
+        return {"status": "healthy"}
+
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return {"status": "initializing"}
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(
-        status="ok",
+        status="ok" if worker_state["ready"] else "initializing",
         sdxl_loaded=all(path.exists() for path in _required_paths()),
         wan_repo_present=False,
     )
