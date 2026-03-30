@@ -84,6 +84,8 @@ Notes:
   - LTX shot generation
   - FFmpeg stitch
   - Polly voiceover mux
+- Serverless deployment guide:
+  [runpod-ltx-serverless.md](D:\openCLI\text 2 video\docs\runpod-ltx-serverless.md)
 
 ## Exact Rebuild Steps
 
