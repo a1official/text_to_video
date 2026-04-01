@@ -26,12 +26,22 @@ git lfs install --system
 mkdir -p \
   /workspace/text2video \
   /workspace/text2video/logs \
+  /workspace/tmp \
+  /workspace/pip-cache \
+  /workspace/uv-cache \
+  /workspace/.cache \
   /workspace/cache/huggingface \
   /workspace/cache/torch \
   /workspace/models/ltx \
   "${LTX_ASSETS_ROOT}"
 
 cat >/etc/profile.d/text2video-ltx.sh <<EOF
+export TMPDIR=/workspace/tmp
+export TEMP=/workspace/tmp
+export TMP=/workspace/tmp
+export PIP_CACHE_DIR=/workspace/pip-cache
+export UV_CACHE_DIR=/workspace/uv-cache
+export XDG_CACHE_HOME=/workspace/.cache
 export HF_HOME=/workspace/cache/huggingface
 export HUGGINGFACE_HUB_CACHE=/workspace/cache/huggingface/hub
 export TORCH_HOME=/workspace/cache/torch
@@ -43,6 +53,13 @@ export LTX_GEMMA_ROOT=${LTX_GEMMA_ROOT}
 export LTX_CHECKPOINT_PATH=${LTX_CHECKPOINT_PATH}
 export LTX_SPATIAL_UPSAMPLER_PATH=${LTX_SPATIAL_UPSAMPLER_PATH}
 EOF
+
+export TMPDIR=/workspace/tmp
+export TEMP=/workspace/tmp
+export TMP=/workspace/tmp
+export PIP_CACHE_DIR=/workspace/pip-cache
+export UV_CACHE_DIR=/workspace/uv-cache
+export XDG_CACHE_HOME=/workspace/.cache
 
 python3 -m venv "${APP_VENV}"
 source "${APP_VENV}/bin/activate"

@@ -114,7 +114,6 @@ def _generate_sdxl_keyframe_sync(request: SdxlGenerateRequest) -> SdxlGenerateRe
         torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         local_files_only=True,
         use_safetensors=True,
-        variant="fp16" if torch.cuda.is_available() else None,
     )
     pipe = pipe.to("cuda" if torch.cuda.is_available() else "cpu")
 

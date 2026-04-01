@@ -44,6 +44,11 @@ class ShotPlanner:
             "Allowed quality_tier values: preview, hero. "
             "Allowed shot_type values: establishing, wide, medium, closeup, talking_head, action, transition, insert. "
             "Allowed audio_mode values: none, ambience, speech, music, speech_and_ambience. "
+            "When the user asks for a product commercial or ad, plan a sequence of short shots that can be stitched into a longer video. "
+            "Use sequence_index ordering implicitly by the order of shots in the array. "
+            "Favor ltx for preview/commercial shots unless the user explicitly asks for wan or humo. "
+            "If references are provided, preserve product identity, packaging colors, label text, and hero product framing in the prompts. "
+            "For spokesperson-style ad shots, describe the presenter holding or presenting the product clearly in appearance_prompt and motion_prompt. "
             "Return no markdown and no explanation outside the JSON."
         )
         user_payload = {
@@ -108,6 +113,7 @@ class ShotPlanner:
 
         return {
             "shot_id": shot_id,
+            "sequence_index": index,
             "shot_type": shot_type,
             "duration_sec": duration_sec,
             "backend_hint": backend_hint,
@@ -138,9 +144,6 @@ class ShotPlanner:
             return "ltx"
         if "wan" in value:
             return "wan"
-
-        if shot_type == "talking_head":
-            return "humo"
         return "ltx"
 
     def _normalize_shot_type(self, raw_value: object) -> str:

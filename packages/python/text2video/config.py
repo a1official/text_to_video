@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
     aws_default_region: str = "us-east-1"
+    sarvam_api_key: str | None = None
+    sarvam_tts_base_url: str = "https://api.sarvam.ai/text-to-speech"
 
     s3_bucket: str = ""
     dynamodb_projects_table: str = "t2v-projects"
@@ -41,6 +43,9 @@ class Settings(BaseSettings):
     runpod_inference_base_url: str | None = None
     runpod_wan_inference_base_url: str | None = None
     runpod_ltx_inference_base_url: str | None = None
+    runpod_infinitetalk_base_url: str = "https://api.runpod.ai/v2/infinitetalk/run"
+    runpod_nano_banana_2_edit_base_url: str = "https://api.runpod.ai/v2/google-nano-banana-2-edit/run"
+    runpod_seedance_i2v_base_url: str = "https://api.runpod.ai/v2/seedance-v1-5-pro-i2v/runsync"
     runpod_request_timeout_sec: int = 3600
     ltx_model_id: str = "Lightricks/LTX-2.3"
     ltx_repo_root: str = "/workspace/text2video/ltx2-official"
