@@ -5,6 +5,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from text2video.api.schemas import (
+    CommercialHQRequest,
+    CommercialHQResponse,
     CreateJobsFromPlanRequest,
     CreateJobRequest,
     CreateProjectRequest,
@@ -21,6 +23,7 @@ from text2video.aws.dynamo import DynamoProjectStore
 from text2video.aws.queue import DynamoJobQueue
 from text2video.aws.s3 import S3Storage
 from text2video.bedrock.planner import ShotPlanner
+from text2video.commercial_hq.pipeline import run_hq_commercial
 from text2video.config import get_settings
 
 
@@ -88,6 +91,36 @@ def test_planner(request: PlanRequest) -> dict:
             references=request.references,
         ),
     }
+
+
+@app.post("/commercials/hq", response_model=CommercialHQResponse)
+def create_commercial_hq(request: CommercialHQRequest) -> CommercialHQResponse:
+    result = run_hq_commercial(
+        settings=settings,
+        project_id=request.project_id,
+        product_image_key=request.product_image_key,
+        presenter_image_key=request.presenter_image_key,
+        brief_mode=request.brief_mode,
+        product_name=request.product_name,
+        product_category=request.product_category,
+        product_description=request.product_description,
+        target_audience=request.target_audience,
+        key_benefits=request.key_benefits,
+        brand_tone=request.brand_tone,
+        call_to_action=request.call_to_action,
+        additional_notes=request.additional_notes,
+        prompt=request.prompt,
+        max_shots=request.max_shots,
+        width=request.width,
+        height=request.height,
+        num_inference_steps=request.num_inference_steps,
+        guidance_scale=request.guidance_scale,
+        seed=request.seed,
+        output_key=request.output_key,
+        voice_id=request.voice_id,
+        voice_engine=request.voice_engine,
+    )
+    return CommercialHQResponse(**result)
 
 
 @app.get("/projects/{project_id}/shots")
