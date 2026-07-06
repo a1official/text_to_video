@@ -31,7 +31,14 @@ class ShotPlanner:
             region_name=settings.bedrock_region,
         )
 
-    def plan_project(self, project_id: str, prompt: str, references: list[dict]) -> dict:
+    def plan_project(
+        self,
+        project_id: str,
+        prompt: str,
+        references: list[dict],
+        desired_shot_count: int | None = None,
+        shot_duration_sec: int | None = None,
+    ) -> dict:
         system_prompt = (
             "You are a film planner for an AI video generation pipeline. "
             "Return valid JSON only with keys: summary, continuity, shots. "
@@ -45,6 +52,8 @@ class ShotPlanner:
             "Allowed shot_type values: establishing, wide, medium, closeup, talking_head, action, transition, insert. "
             "Allowed audio_mode values: none, ambience, speech, music, speech_and_ambience. "
             "When the user asks for a product commercial or ad, plan a sequence of short shots that can be stitched into a longer video. "
+            "If desired_shot_count is provided, target exactly that many shots. "
+            "If shot_duration_sec is provided, make each shot duration match that value unless the narration flow clearly requires a small adjustment. "
             "Use sequence_index ordering implicitly by the order of shots in the array. "
             "Favor ltx for preview/commercial shots unless the user explicitly asks for wan or humo. "
             "If references are provided, preserve product identity, packaging colors, label text, and hero product framing in the prompts. "
@@ -55,6 +64,8 @@ class ShotPlanner:
             "project_id": project_id,
             "prompt": prompt,
             "references": references,
+            "desired_shot_count": desired_shot_count,
+            "shot_duration_sec": shot_duration_sec,
         }
 
         response = self.client.converse(
@@ -67,7 +78,11 @@ class ShotPlanner:
             messages=[{"role": "user", "content": [{"text": json.dumps(user_payload)}]}],
         )
         text = response["output"]["message"]["content"][0]["text"]
-        return self._normalize_plan(self._parse_json_response(text))
+        return self._normalize_plan(
+            self._parse_json_response(text),
+            desired_shot_count=desired_shot_count,
+            shot_duration_sec=shot_duration_sec,
+        )
 
     @staticmethod
     def _parse_json_response(text: str) -> dict:
@@ -87,7 +102,12 @@ class ShotPlanner:
 
         raise ValueError(f"Bedrock planner did not return parseable JSON: {cleaned[:300]}")
 
-    def _normalize_plan(self, payload: dict) -> dict:
+    def _normalize_plan(
+        self,
+        payload: dict,
+        desired_shot_count: int | None = None,
+        shot_duration_sec: int | None = None,
+    ) -> dict:
         summary = str(payload.get("summary", "")).strip()
         continuity_raw = payload.get("continuity", [])
         shots_raw = payload.get("shots", [])
@@ -96,7 +116,14 @@ class ShotPlanner:
         normalized_shots = []
 
         for index, shot in enumerate(shots_raw, start=1):
-            normalized_shots.append(self._normalize_shot(index=index, shot=shot))
+            normalized_shots.append(self._normalize_shot(index=index, shot=shot, shot_duration_sec=shot_duration_sec))
+
+        if desired_shot_count and desired_shot_count > 0:
+            normalized_shots = self._fit_shot_count(
+                normalized_shots,
+                desired_shot_count=desired_shot_count,
+                shot_duration_sec=shot_duration_sec,
+            )
 
         return {
             "summary": summary,
@@ -104,11 +131,11 @@ class ShotPlanner:
             "shots": normalized_shots,
         }
 
-    def _normalize_shot(self, index: int, shot: dict) -> dict:
+    def _normalize_shot(self, index: int, shot: dict, shot_duration_sec: int | None = None) -> dict:
         shot_id = str(shot.get("shot_id") or f"shot{index:03d}").strip()
         shot_type = self._normalize_shot_type(shot.get("shot_type"))
         backend_hint = self._normalize_backend(shot.get("backend_hint"), shot_type)
-        duration_sec = self._normalize_duration(shot.get("duration_sec"))
+        duration_sec = self._normalize_duration(shot_duration_sec if shot_duration_sec is not None else shot.get("duration_sec"))
         audio_mode = self._normalize_audio_mode(shot.get("audio_mode"), shot_type)
 
         return {
@@ -134,6 +161,49 @@ class ShotPlanner:
             "quality_tier": self._normalize_quality_tier(shot.get("quality_tier"), backend_hint),
             "audio_mode": audio_mode,
         }
+
+    def _fit_shot_count(
+        self,
+        shots: list[dict],
+        desired_shot_count: int,
+        shot_duration_sec: int | None,
+    ) -> list[dict]:
+        if not shots:
+            shots = [
+                self._normalize_shot(
+                    index=1,
+                    shot={
+                        "shot_id": "shot001",
+                        "shot_type": "wide",
+                        "backend_hint": "ltx",
+                        "audio_mode": "ambience",
+                        "appearance_prompt": "A clean cinematic establishing shot that matches the requested story.",
+                        "motion_prompt": "The scene feels composed, purposeful, and visually coherent.",
+                        "camera_prompt": "Stable cinematic framing with a premium commercial rhythm.",
+                    },
+                    shot_duration_sec=shot_duration_sec,
+                )
+            ]
+
+        if len(shots) > desired_shot_count:
+            return shots[:desired_shot_count]
+
+        fitted = list(shots)
+        while len(fitted) < desired_shot_count:
+            source = fitted[-1]
+            clone_index = len(fitted) + 1
+            clone = dict(source)
+            clone["shot_id"] = f"{source.get('shot_id', f'shot{clone_index:03d}')}-{clone_index:02d}"
+            clone["sequence_index"] = clone_index
+            if shot_duration_sec is not None:
+                clone["duration_sec"] = shot_duration_sec
+            fitted.append(clone)
+
+        for index, shot in enumerate(fitted, start=1):
+            shot["sequence_index"] = index
+            if shot_duration_sec is not None:
+                shot["duration_sec"] = shot_duration_sec
+        return fitted
 
     def _normalize_backend(self, raw_value: object, shot_type: str) -> str:
         value = str(raw_value or "").strip().lower()

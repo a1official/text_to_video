@@ -96,6 +96,9 @@ class DynamoProjectStore:
                         "sk": f"SHOT#{shot['shot_id']}",
                         "project_id": project_id,
                         "sequence_index": index,
+                        "review_status": shot.get("review_status", "pending_review"),
+                        "approved_for_render": bool(shot.get("approved_for_render", False)),
+                        "edit_prompt": str(shot.get("edit_prompt") or ""),
                         **shot,
                         "created_at": now,
                         "updated_at": now,
@@ -153,6 +156,47 @@ class DynamoProjectStore:
         items = self.list_project_items(project_id)
         shots = [item for item in items if item.get("sk", "").startswith("SHOT#")]
         return sorted(shots, key=lambda item: item.get("sequence_index", 0))
+
+    def get_shot(self, project_id: str, shot_id: str) -> dict | None:
+        response = self.table.get_item(Key={"pk": f"PROJECT#{project_id}", "sk": f"SHOT#{shot_id}"})
+        return response.get("Item")
+
+    def update_shot_metadata(self, project_id: str, shot_id: str, fields: dict[str, Any]) -> dict:
+        shot = self.get_shot(project_id, shot_id)
+        if not shot:
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "ResourceNotFoundException",
+                        "Message": f"Shot {shot_id} was not found for project {project_id}",
+                    }
+                },
+                "GetItem",
+            )
+
+        if not fields:
+            return shot
+
+        now = utc_now_iso()
+        expression_attribute_names: dict[str, str] = {}
+        expression_attribute_values: dict[str, Any] = {":updated_at": now}
+        assignments = ["updated_at = :updated_at"]
+
+        for index, (key, value) in enumerate(fields.items()):
+            name_key = f"#field_{index}"
+            value_key = f":value_{index}"
+            expression_attribute_names[name_key] = key
+            expression_attribute_values[value_key] = value
+            assignments.append(f"{name_key} = {value_key}")
+
+        response = self.table.update_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": f"SHOT#{shot_id}"},
+            UpdateExpression="SET " + ", ".join(assignments),
+            ExpressionAttributeNames=expression_attribute_names,
+            ExpressionAttributeValues=expression_attribute_values,
+            ReturnValues="ALL_NEW",
+        )
+        return response.get("Attributes", {})
 
     def get_plan_context(self, project_id: str) -> dict:
         project = self.get_project(project_id)

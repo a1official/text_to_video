@@ -39,7 +39,10 @@ class StoryPipelineRequest(BaseModel):
     voice_id: str = "Matthew"
     language_code: str = "en-IN"
     priority: int = 100
+    image_count: int = 5
+    duration_sec: int = 5
     create_stitch_plan: bool = True
+    approval_required: bool = True
 
 
 class StoryPipelineResponse(BaseModel):
@@ -49,6 +52,8 @@ class StoryPipelineResponse(BaseModel):
     voiceover_script: str = ""
     tts: dict[str, Any]
     jobs: list[dict[str, Any]]
+    approval_required: bool = True
+    review_state: str = "awaiting_review"
 
 
 class LambdaStoryPipelineResponse(BaseModel):
@@ -86,6 +91,42 @@ class PollProjectRequest(BaseModel):
     scene_id: str = "scene001"
     output_prefix: str = "stitched"
     output_filename: str = "scene001.mp4"
+
+
+class StoryReviewRegenerateRequest(BaseModel):
+    shot_id: str
+    edit_prompt: str = ""
+    priority: int = 100
+
+
+class StoryReviewApproveRequest(BaseModel):
+    approved_shot_ids: list[str] = Field(default_factory=list)
+    generate_voiceover: bool = True
+    priority: int = 100
+
+
+class StoryReviewShotResponse(BaseModel):
+    shot_id: str
+    sequence_index: int | None = None
+    duration_sec: int = 5
+    review_status: str = "pending_review"
+    appearance_prompt: str = ""
+    motion_prompt: str = ""
+    camera_prompt: str = ""
+    edit_prompt: str = ""
+    latest_output_key: str = ""
+    latest_output_url: str = ""
+    latest_output_type: str = ""
+    approved_for_render: bool = False
+
+
+class StoryReviewResponse(BaseModel):
+    project_id: str
+    project: dict[str, Any]
+    review_state: str = "awaiting_review"
+    approval_required: bool = True
+    shots: list[StoryReviewShotResponse] = Field(default_factory=list)
+    outputs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class StitchManifestResponse(BaseModel):

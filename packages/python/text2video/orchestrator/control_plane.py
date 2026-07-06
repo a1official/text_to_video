@@ -20,10 +20,24 @@ def create_project_workflow(*, settings: Settings, title: str, created_by: str, 
     return project
 
 
-def plan_project_workflow(*, settings: Settings, project_id: str, prompt: str, references: list[dict[str, Any]]) -> dict:
+def plan_project_workflow(
+    *,
+    settings: Settings,
+    project_id: str,
+    prompt: str,
+    references: list[dict[str, Any]],
+    desired_shot_count: int | None = None,
+    shot_duration_sec: int | None = None,
+) -> dict:
     planner = ShotPlanner(settings)
     store = DynamoProjectStore(settings)
-    plan = planner.plan_project(project_id=project_id, prompt=prompt, references=references)
+    plan = planner.plan_project(
+        project_id=project_id,
+        prompt=prompt,
+        references=references,
+        desired_shot_count=desired_shot_count,
+        shot_duration_sec=shot_duration_sec,
+    )
     saved = store.save_plan(
         project_id=project_id,
         summary=plan["summary"],
@@ -254,6 +268,67 @@ def create_story_jobs_from_plan_workflow(
     return {"project_id": project_id, "jobs": created_jobs}
 
 
+def create_story_review_jobs_from_plan_workflow(
+    *,
+    settings: Settings,
+    project_id: str,
+    priority: int = 100,
+    include_continuity: bool = True,
+) -> dict:
+    store = DynamoProjectStore(settings)
+    queue = DynamoJobQueue(settings)
+    plan_context = store.get_plan_context(project_id)
+    shots = plan_context["shots"]
+    if not shots:
+        raise ValueError("No stored shots found for project")
+
+    created_jobs: list[dict[str, Any]] = []
+    for shot in shots:
+        appearance_prompt = shot.get("appearance_prompt") or shot.get("prompt", "")
+        motion_prompt = shot.get("motion_prompt") or shot.get("prompt", "")
+        camera_prompt = shot.get("camera_prompt") or shot.get("camera", "")
+        quality_tier = shot.get("quality_tier", "preview")
+
+        payload = {
+            "project_id": project_id,
+            "shot_id": shot["shot_id"],
+            "sequence_index": shot.get("sequence_index"),
+            "summary": plan_context["summary"],
+            "prompt": appearance_prompt,
+            "camera": camera_prompt,
+            "appearance_prompt": appearance_prompt,
+            "motion_prompt": motion_prompt,
+            "camera_prompt": camera_prompt,
+            "duration_sec": shot.get("duration_sec", 5),
+            "shot_type": shot.get("shot_type", "wide"),
+            "backend_hint": "nano_banana_2_edit",
+            "quality_tier": "hero" if shot.get("shot_type") in {"establishing", "wide", "hero_product"} else quality_tier,
+            "audio_mode": shot.get("audio_mode", "ambience"),
+            "keyframe_output_key": f"keyframes/{project_id}/{shot['shot_id']}.png",
+            "continuity": plan_context["continuity"] if include_continuity else [],
+        }
+
+        keyframe_job = queue.enqueue(
+            project_id=project_id,
+            shot_id=shot["shot_id"],
+            job_type="generate_keyframe_nano_banana_2_edit",
+            worker_type="general",
+            payload=payload,
+            priority=priority,
+        )
+        created_jobs.append(queue.get_job(keyframe_job["job_id"]))
+
+    store.set_project_status(
+        project_id,
+        "review_pending",
+        workflow_state="awaiting_review",
+        review_required=True,
+        approval_required=True,
+        job_count=len(created_jobs),
+    )
+    return {"project_id": project_id, "jobs": created_jobs}
+
+
 def run_story_pipeline_workflow(
     *,
     settings: Settings,
@@ -263,6 +338,9 @@ def run_story_pipeline_workflow(
     voice_id: str = "Matthew",
     language_code: str = "en-IN",
     priority: int = 100,
+    image_count: int = 5,
+    duration_sec: int = 5,
+    approval_required: bool = True,
 ) -> dict:
     project = create_project_workflow(
         settings=settings,
@@ -276,35 +354,36 @@ def run_story_pipeline_workflow(
         project_id=project_id,
         prompt=prompt,
         references=[],
+        desired_shot_count=max(image_count, 1),
+        shot_duration_sec=max(duration_sec, 1),
     )
     story_script = generate_story_voiceover_script(
         settings=settings,
         prompt=prompt,
         summary=str(plan.get("summary") or prompt).strip(),
         continuity=list(plan.get("continuity") or []),
-        target_duration_sec=sum(int(shot.get("duration_sec") or 0) for shot in (plan.get("shots") or [])),
+        target_duration_sec=max(image_count, 1) * max(duration_sec, 1),
     )
     store = DynamoProjectStore(settings)
     store.set_project_status(
         project_id,
-        "planned",
-        workflow_state="story_planned",
+        "review_pending",
+        workflow_state="awaiting_review",
+        approval_required=approval_required,
+        review_required=approval_required,
+        image_count=max(image_count, 1),
+        duration_sec=max(duration_sec, 1),
         voiceover_script=story_script,
         voice_id=voice_id,
         voiceover_language_code=language_code,
         story_prompt=prompt,
         plan_summary=str(plan.get("summary") or prompt).strip(),
     )
-    tts = generate_tts_workflow(
-        settings=settings,
-        project_id=project_id,
-        script_text=story_script,
-        voice_id=voice_id,
-        language_code=language_code,
-        shot_id="story-voiceover",
-        output_prefix="audio",
-    )
-    jobs = create_story_jobs_from_plan_workflow(
+    tts = {
+        "status": "deferred",
+        "message": "Voiceover generation is deferred until the user approves the image set.",
+    }
+    jobs = create_story_review_jobs_from_plan_workflow(
         settings=settings,
         project_id=project_id,
         priority=priority,
@@ -317,6 +396,8 @@ def run_story_pipeline_workflow(
         "voiceover_script": story_script,
         "tts": tts,
         "jobs": jobs["jobs"],
+        "approval_required": approval_required,
+        "review_state": "awaiting_review",
     }
 
 
@@ -439,6 +520,219 @@ def generate_tts_workflow(
         "audio_key": audio_key,
         "audio_uri": audio_uri,
         "output": output,
+    }
+
+
+def build_story_review_view(*, settings: Settings, project_id: str) -> dict[str, Any]:
+    store = DynamoProjectStore(settings)
+    storage = S3Storage(settings)
+    project = store.get_project(project_id)
+    if not project:
+        raise ValueError(f"Project {project_id} was not found")
+
+    outputs = store.list_outputs(project_id)
+    shots = store.list_shots(project_id)
+    latest_outputs_by_shot: dict[str, dict[str, Any]] = {}
+    for output in outputs:
+        shot_id = str(output.get("shot_id") or "").strip()
+        if not shot_id:
+            continue
+        latest_outputs_by_shot[shot_id] = output
+
+    review_shots: list[dict[str, Any]] = []
+    for shot in shots:
+        latest_output = latest_outputs_by_shot.get(shot["shot_id"], {})
+        output_key = str(latest_output.get("s3_key") or "").strip()
+        review_shots.append(
+            {
+                "shot_id": shot["shot_id"],
+                "sequence_index": shot.get("sequence_index"),
+                "duration_sec": int(shot.get("duration_sec") or 5),
+                "review_status": str(shot.get("review_status") or "pending_review"),
+                "appearance_prompt": str(shot.get("appearance_prompt") or shot.get("prompt") or ""),
+                "motion_prompt": str(shot.get("motion_prompt") or shot.get("prompt") or ""),
+                "camera_prompt": str(shot.get("camera_prompt") or shot.get("camera") or ""),
+                "edit_prompt": str(shot.get("edit_prompt") or ""),
+                "latest_output_key": output_key,
+                "latest_output_url": storage.create_presigned_download(output_key)["url"] if output_key else "",
+                "latest_output_type": str(latest_output.get("output_type") or ""),
+                "approved_for_render": bool(shot.get("approved_for_render", False)),
+            }
+        )
+
+    return {
+        "project_id": project_id,
+        "project": project,
+        "review_state": str(project.get("workflow_state") or project.get("status") or "awaiting_review"),
+        "approval_required": bool(project.get("approval_required", True)),
+        "shots": review_shots,
+        "outputs": outputs,
+    }
+
+
+def regenerate_story_shot_workflow(
+    *,
+    settings: Settings,
+    project_id: str,
+    shot_id: str,
+    edit_prompt: str,
+    priority: int = 100,
+) -> dict[str, Any]:
+    store = DynamoProjectStore(settings)
+    queue = DynamoJobQueue(settings)
+    shot = store.get_shot(project_id, shot_id)
+    if not shot:
+        raise ValueError(f"Shot {shot_id} was not found for project {project_id}")
+
+    base_prompt = str(shot.get("appearance_prompt") or shot.get("prompt") or "").strip()
+    motion_prompt = str(shot.get("motion_prompt") or "").strip()
+    camera_prompt = str(shot.get("camera_prompt") or "").strip()
+    combined_edit = " ".join(part for part in [base_prompt, edit_prompt.strip()] if part).strip()
+    updated_shot = store.update_shot_metadata(
+        project_id,
+        shot_id,
+        {
+            "appearance_prompt": combined_edit or base_prompt,
+            "edit_prompt": edit_prompt.strip(),
+            "review_status": "pending_review",
+            "approved_for_render": False,
+        },
+    )
+
+    job = queue.enqueue(
+        project_id=project_id,
+        shot_id=shot_id,
+        job_type="generate_keyframe_nano_banana_2_edit",
+        worker_type="general",
+        payload={
+            "project_id": project_id,
+            "shot_id": shot_id,
+            "sequence_index": shot.get("sequence_index"),
+            "summary": str(store.get_plan_context(project_id).get("summary") or ""),
+            "prompt": combined_edit or base_prompt,
+            "camera": camera_prompt,
+            "appearance_prompt": combined_edit or base_prompt,
+            "motion_prompt": motion_prompt,
+            "camera_prompt": camera_prompt,
+            "duration_sec": int(shot.get("duration_sec") or 5),
+            "shot_type": str(shot.get("shot_type") or "wide"),
+            "backend_hint": "nano_banana_2_edit",
+            "quality_tier": "hero" if shot.get("shot_type") in {"establishing", "wide", "hero_product"} else str(shot.get("quality_tier") or "preview"),
+            "audio_mode": str(shot.get("audio_mode") or "ambience"),
+            "keyframe_output_key": f"keyframes/{project_id}/{shot_id}.png",
+            "continuity": list(store.get_plan_context(project_id).get("continuity") or []),
+        },
+        priority=priority,
+    )
+    store.set_project_status(
+        project_id,
+        str(store.get_project(project_id).get("status") or "review_pending"),
+        workflow_state="awaiting_review",
+        review_required=True,
+    )
+    return {"project_id": project_id, "shot": updated_shot, "job": queue.get_job(job["job_id"])}
+
+
+def approve_story_review_workflow(
+    *,
+    settings: Settings,
+    project_id: str,
+    approved_shot_ids: list[str] | None = None,
+    generate_voiceover: bool = True,
+    priority: int = 100,
+) -> dict[str, Any]:
+    store = DynamoProjectStore(settings)
+    queue = DynamoJobQueue(settings)
+    project = store.get_project(project_id)
+    if not project:
+        raise ValueError(f"Project {project_id} was not found")
+
+    shots = store.list_shots(project_id)
+    outputs = store.list_outputs(project_id)
+    latest_outputs_by_shot: dict[str, dict[str, Any]] = {}
+    for output in outputs:
+        shot_id = str(output.get("shot_id") or "").strip()
+        if shot_id:
+            latest_outputs_by_shot[shot_id] = output
+
+    approved_set = set(approved_shot_ids or [])
+    if not approved_set:
+        approved_set = {shot["shot_id"] for shot in shots}
+
+    created_jobs: list[dict[str, Any]] = []
+    for shot in shots:
+        if shot["shot_id"] not in approved_set:
+            continue
+        latest_output = latest_outputs_by_shot.get(shot["shot_id"])
+        if not latest_output:
+            raise ValueError(f"Shot {shot['shot_id']} does not have a generated image to send to Veo")
+        source_image_key = str(latest_output.get("s3_key") or "").strip()
+        if not source_image_key:
+            raise ValueError(f"Shot {shot['shot_id']} is missing a source image key")
+
+        store.update_shot_metadata(
+            project_id,
+            shot["shot_id"],
+            {
+                "review_status": "approved",
+                "approved_for_render": True,
+            },
+        )
+
+        veo_job = queue.enqueue(
+            project_id=project_id,
+            shot_id=shot["shot_id"],
+            job_type="generate_segment_veo",
+            worker_type="general",
+            payload={
+                "project_id": project_id,
+                "shot_id": shot["shot_id"],
+                "sequence_index": shot.get("sequence_index"),
+                "summary": str(project.get("plan_summary") or project.get("story_prompt") or ""),
+                "prompt": str(shot.get("appearance_prompt") or shot.get("prompt") or ""),
+                "camera": str(shot.get("camera_prompt") or shot.get("camera") or ""),
+                "appearance_prompt": str(shot.get("appearance_prompt") or shot.get("prompt") or ""),
+                "motion_prompt": str(shot.get("motion_prompt") or shot.get("prompt") or ""),
+                "camera_prompt": str(shot.get("camera_prompt") or shot.get("camera") or ""),
+                "duration_sec": int(shot.get("duration_sec") or 5),
+                "shot_type": str(shot.get("shot_type") or "wide"),
+                "backend_hint": "veo",
+                "quality_tier": "hero",
+                "audio_mode": str(shot.get("audio_mode") or "ambience"),
+                "source_image_key": source_image_key,
+                "preview_output_key": f"renders/{project_id}/{shot['shot_id']}.mp4",
+                "continuity": list(store.get_plan_context(project_id).get("continuity") or []),
+            },
+            priority=priority,
+        )
+        created_jobs.append(queue.get_job(veo_job["job_id"]))
+
+    voiceover_result: dict[str, Any] = {}
+    if generate_voiceover and not any(output.get("output_type") in {"voiceover_audio", "tts_audio"} for output in outputs):
+        voiceover_result = generate_tts_workflow(
+            settings=settings,
+            project_id=project_id,
+            script_text=str(project.get("voiceover_script") or project.get("story_prompt") or ""),
+            voice_id=str(project.get("voice_id") or "Matthew"),
+            language_code=str(project.get("voiceover_language_code") or "en-IN"),
+            shot_id="story-voiceover",
+            output_prefix="audio",
+        )
+
+    store.set_project_status(
+        project_id,
+        "rendering",
+        workflow_state="veo_queued",
+        review_required=True,
+        approval_required=True,
+        approved_for_render=True,
+        approved_shot_count=len(created_jobs),
+    )
+    return {
+        "project_id": project_id,
+        "jobs": created_jobs,
+        "voiceover": voiceover_result,
+        "review": build_story_review_view(settings=settings, project_id=project_id),
     }
 
 
@@ -592,6 +886,12 @@ def poll_project_workflow(
             "detail": "One or more jobs failed.",
             "failed_jobs": failed_jobs,
         }
+
+    if str(project.get("workflow_state") or "").strip() == "awaiting_review" and not project.get("approved_for_render"):
+        review = build_story_review_view(settings=settings, project_id=project_id)
+        review["state"] = "awaiting_review"
+        review["detail"] = "Image generation is complete. Approval is required before Veo rendering starts."
+        return review
 
     voiceover_script = str(project.get("voiceover_script") or "").strip()
     voiceover_outputs = [
@@ -794,6 +1094,25 @@ def lambda_handler(event: Mapping[str, Any], context: Any = None) -> dict[str, A
             prompt=str(event.get("prompt") or ""),
             voice_id=str(event.get("voice_id") or "Matthew"),
             language_code=str(event.get("language_code") or "en-IN"),
+            priority=int(event.get("priority") or 100),
+            image_count=int(event.get("image_count") or 5),
+            duration_sec=int(event.get("duration_sec") or 5),
+            approval_required=bool(event.get("approval_required", True)),
+        )
+    if action == "approve_story_review":
+        return approve_story_review_workflow(
+            settings=settings,
+            project_id=str(event["project_id"]),
+            approved_shot_ids=list(event.get("approved_shot_ids") or []),
+            generate_voiceover=bool(event.get("generate_voiceover", True)),
+            priority=int(event.get("priority") or 100),
+        )
+    if action == "regenerate_story_review":
+        return regenerate_story_shot_workflow(
+            settings=settings,
+            project_id=str(event["project_id"]),
+            shot_id=str(event["shot_id"]),
+            edit_prompt=str(event.get("edit_prompt") or ""),
             priority=int(event.get("priority") or 100),
         )
 

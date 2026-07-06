@@ -23,6 +23,9 @@ from text2video.api.schemas import (
     CreateProjectRequest,
     CreateStitchPlanRequest,
     LambdaStoryPipelineResponse,
+    StoryReviewApproveRequest,
+    StoryReviewRegenerateRequest,
+    StoryReviewResponse,
     StoryPipelineRequest,
     StoryPipelineResponse,
     PollProjectRequest,
@@ -51,10 +54,14 @@ from text2video.commercial_nvidia.pipeline import run_nvidia_commercial
 from text2video.commercial_nextgen.pipeline import run_nextgen_commercial
 from text2video.commercial_hq.product_understanding import analyze_product_image, enrich_product_brief
 from text2video.orchestrator.control_plane import (
+    approve_story_review_workflow,
     create_jobs_from_plan_workflow,
     create_project_workflow,
+    create_story_review_jobs_from_plan_workflow,
     create_stitch_plan_workflow,
     plan_project_workflow,
+    regenerate_story_shot_workflow,
+    build_story_review_view,
     run_story_pipeline_workflow,
     poll_project_workflow,
 )
@@ -149,6 +156,9 @@ def run_story_pipeline(request: StoryPipelineRequest) -> StoryPipelineResponse:
         voice_id=request.voice_id,
         language_code=request.language_code,
         priority=request.priority,
+        image_count=request.image_count,
+        duration_sec=request.duration_sec,
+        approval_required=request.approval_required,
     )
     return StoryPipelineResponse(**result)
 
@@ -164,6 +174,9 @@ def run_story_pipeline_lambda(request: StoryPipelineRequest) -> LambdaStoryPipel
         "voice_id": request.voice_id,
         "language_code": request.language_code,
         "priority": request.priority,
+        "image_count": request.image_count,
+        "duration_sec": request.duration_sec,
+        "approval_required": request.approval_required,
     }
     response = lambda_client.invoke(
         FunctionName=settings.lambda_story_orchestrator_function_name,
@@ -180,6 +193,43 @@ def run_story_pipeline_lambda(request: StoryPipelineRequest) -> LambdaStoryPipel
         request=request,
         result=result,
     )
+
+
+@app.get("/projects/{project_id}/review", response_model=StoryReviewResponse)
+def get_story_review(project_id: str) -> StoryReviewResponse:
+    project = project_store.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    review = build_story_review_view(settings=settings, project_id=project_id)
+    return StoryReviewResponse(**review)
+
+
+@app.post("/projects/{project_id}/review/regenerate", response_model=dict)
+def regenerate_story_review(project_id: str, request: StoryReviewRegenerateRequest) -> dict:
+    try:
+        return regenerate_story_shot_workflow(
+            settings=settings,
+            project_id=project_id,
+            shot_id=request.shot_id,
+            edit_prompt=request.edit_prompt,
+            priority=request.priority,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/projects/{project_id}/review/approve", response_model=dict)
+def approve_story_review(project_id: str, request: StoryReviewApproveRequest) -> dict:
+    try:
+        return approve_story_review_workflow(
+            settings=settings,
+            project_id=project_id,
+            approved_shot_ids=request.approved_shot_ids,
+            generate_voiceover=request.generate_voiceover,
+            priority=request.priority,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.post("/commercials/hq", response_model=CommercialHQResponse)
