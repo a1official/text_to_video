@@ -22,6 +22,8 @@ class WorkerRunner:
     def run_once(self) -> bool:
         candidates = self.queue.list_pending(worker_type=self.settings.worker_type)
         for job in candidates:
+            if not self._job_is_ready(job):
+                continue
             job_id = job["job_id"]
             if self.queue.try_acquire(job_id, self.settings.worker_id):
                 self._handle_job(job)
@@ -41,33 +43,32 @@ class WorkerRunner:
                 return
 
             result = adapter.execute(job)
-            if job["job_type"] != "stitch_segments":
-                if self.settings.runpod_inference_base_url:
-                    self.queue.mark_complete(
-                        job_id,
-                        self.settings.worker_id,
-                        {
-                            "output_type": result.output_type,
-                            "s3_key": result.s3_key,
-                            "backend": result.backend,
-                            "notes": result.notes,
-                        },
-                    )
-                    return
-                raise RuntimeError(
-                    f"{adapter.name} adapter validated the payload, but local model execution is disabled until a real GPU worker is attached."
-                )
-
-            self.queue.mark_complete(
-                job_id,
-                self.settings.worker_id,
-                {
-                    "output_type": result.output_type,
-                    "s3_key": result.s3_key,
-                    "backend": result.backend,
-                    "manifest_ref": result.manifest_ref,
-                    "notes": result.notes,
-                },
-            )
+            completion_result = {
+                "output_type": result.output_type,
+                "s3_key": result.s3_key,
+                "backend": result.backend,
+                "duration_sec": result.duration_sec,
+                "fps": result.fps,
+                "resolution": result.resolution,
+                "seed": result.seed,
+                "manifest_ref": result.manifest_ref,
+                "notes": result.notes,
+            }
+            self.queue.mark_complete(job_id, self.settings.worker_id, completion_result)
         except Exception as exc:  # pragma: no cover - scaffold safety
             self.queue.mark_failed(job_id, self.settings.worker_id, str(exc))
+
+    def _job_is_ready(self, job: dict) -> bool:
+        dependency_ids = [
+            str(job.get("payload", {}).get(field) or "").strip()
+            for field in ("depends_on_job_id", "preview_job_id", "base_job_id")
+        ]
+        dependency_ids = [dependency_id for dependency_id in dependency_ids if dependency_id]
+        if not dependency_ids:
+            return True
+
+        for dependency_id in dependency_ids:
+            dependency = self.queue.get_job(dependency_id)
+            if not dependency or dependency.get("status") != "completed":
+                return False
+        return True

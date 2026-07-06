@@ -14,18 +14,31 @@ def resolve_segment_path(settings: Settings, project_id: str, output_key: str) -
     return get_runtime_path(settings, "outputs", project_id, filename)
 
 
-def run_ffmpeg_stitch(settings: Settings, payload: StitchWorkerPayload) -> Path:
-    output_path = get_runtime_path(settings, "stitched", payload.project_id, Path(payload.output_key).name)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+def ensure_segment_file(settings: Settings, project_id: str, output_key: str) -> Path:
+    segment_path = resolve_segment_path(settings, project_id, output_key)
+    if segment_path.exists():
+        return segment_path
 
-    segment_paths = [resolve_segment_path(settings, payload.project_id, segment.output_key) for segment in payload.segments]
+    from text2video.aws.s3 import S3Storage
+
+    segment_path.parent.mkdir(parents=True, exist_ok=True)
+    S3Storage(settings).download_file(output_key, str(segment_path))
+    return segment_path
+
+
+def run_ffmpeg_stitch(settings: Settings, payload: StitchWorkerPayload) -> Path:
+    final_output_path = get_runtime_path(settings, "stitched", payload.project_id, Path(payload.output_key).name)
+    final_output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    segment_paths = [ensure_segment_file(settings, payload.project_id, segment.output_key) for segment in payload.segments]
     missing = [str(path) for path in segment_paths if not path.exists()]
     if missing:
         raise FileNotFoundError(f"Missing local segment files for stitch job: {missing}")
 
+    visual_output_path = final_output_path.with_name(f"{final_output_path.stem}.visual{final_output_path.suffix}")
     all_hard_cuts = all(segment.transition == "hard_cut" for segment in payload.segments)
     if all_hard_cuts:
-        concat_path = output_path.with_suffix(".concat.txt")
+        concat_path = visual_output_path.with_suffix(".concat.txt")
         concat_path.write_text(
             "".join(f"file '{path.resolve().as_posix()}'\n" for path in segment_paths),
             encoding="utf-8",
@@ -41,16 +54,61 @@ def run_ffmpeg_stitch(settings: Settings, payload: StitchWorkerPayload) -> Path:
             str(concat_path),
             "-c",
             "copy",
-            str(output_path),
+            str(visual_output_path),
         ]
     else:
-        command = _build_xfade_command(segment_paths=segment_paths, payload=payload, output_path=output_path)
+        command = _build_xfade_command(segment_paths=segment_paths, payload=payload, output_path=visual_output_path)
 
     completed = subprocess.run(command, check=False, capture_output=True, text=True)
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr[-1200:])
 
-    return output_path
+    if payload.audio_key:
+        audio_path = ensure_audio_file(settings, payload.project_id, payload.audio_key)
+        mux_audio_into_video(video_path=visual_output_path, audio_path=audio_path, output_path=final_output_path)
+        return final_output_path
+
+    return visual_output_path
+
+
+def ensure_audio_file(settings: Settings, project_id: str, audio_key: str) -> Path:
+    if not audio_key:
+        raise FileNotFoundError("Audio key is empty")
+    audio_path = get_runtime_path(settings, "voiceover", project_id, Path(audio_key).name)
+    if audio_path.exists():
+        return audio_path
+
+    from text2video.aws.s3 import S3Storage
+
+    audio_path.parent.mkdir(parents=True, exist_ok=True)
+    S3Storage(settings).download_file(audio_key, str(audio_path))
+    return audio_path
+
+
+def mux_audio_into_video(*, video_path: Path, audio_path: Path, output_path: Path) -> None:
+    command = [
+        "ffmpeg",
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(audio_path),
+        "-filter_complex",
+        "[1:a]apad[audio]",
+        "-map",
+        "0:v:0",
+        "-map",
+        "[audio]",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-shortest",
+        str(output_path),
+    ]
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr[-1200:])
 
 
 def _build_xfade_command(segment_paths: list[Path], payload: StitchWorkerPayload, output_path: Path) -> list[str]:

@@ -3,96 +3,138 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Signal Foundry</title>
+    <title>Travey Lambda Studio</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Syne:wght@500;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/ui/styles.css" />
   </head>
   <body>
-    <div class="grain"></div>
-    <main class="shell">
-      <section class="hero">
-        <p class="eyebrow">Signal Foundry</p>
-        <h1>Plan, queue, and stitch cinematic AI video systems.</h1>
-        <p class="lede">
-          A control room for the Seedance-like pipeline: project intake, Bedrock planning, shot jobs,
-          stitch manifests, and output tracking.
-        </p>
-      </section>
+    <div class="backdrop"></div>
+    <div class="mesh mesh-a"></div>
+    <div class="mesh mesh-b"></div>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Lambda Story Launcher</p>
+          <h1>Write once. Launch the whole video pipeline.</h1>
+        </div>
+        <div class="topbar-meta">
+          <span class="status-pill status-live">Lambda route ready</span>
+          <span class="status-pill">RunPod render lanes</span>
+          <span class="status-pill">S3 final delivery</span>
+        </div>
+      </header>
 
-      <section class="grid">
-        <article class="panel panel-accent">
-          <h2>Create Project</h2>
-          <form id="project-form" class="stack">
-            <input name="title" placeholder="Project title" required />
-            <input name="created_by" placeholder="Created by" value="akash" required />
-            <input name="style_profile" placeholder="Style profile (optional)" />
-            <button type="submit">Create Project</button>
+      <section class="hero-grid">
+        <article class="panel panel-hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Prompt to video</p>
+            <h2>Pass the story prompt, and the orchestrator handles planning, TTS, image generation, video motion, and stitching.</h2>
+            <p class="lede">
+              This UI sends your prompt to the Lambda route. Lambda then orchestrates Bedrock planning,
+              Sarvam voiceover, Nano Banana 2 for image creation, Veo for motion, and FFmpeg stitching.
+            </p>
+          </div>
+
+          <form id="story-form" class="story-form">
+            <label>
+              Story prompt
+              <textarea
+                name="prompt"
+                rows="8"
+                placeholder="Example: A cinematic travel story about a traveler discovering hidden local food spots, scenic routes, and real traveler notes."
+                required
+              ></textarea>
+            </label>
+
+            <div class="form-grid">
+              <label>
+                Project title
+                <input name="title" value="Travel Story Launch" required />
+              </label>
+              <label>
+                Created by
+                <input name="created_by" value="akash" required />
+              </label>
+              <label>
+                Voice ID
+                <input name="voice_id" value="Matthew" />
+              </label>
+              <label>
+                Language
+                <input name="language_code" value="en-IN" />
+              </label>
+            </div>
+
+            <div class="action-row">
+              <button class="primary" type="submit">Launch Lambda Story</button>
+              <button class="ghost" type="button" id="refresh-btn">Refresh Project Status</button>
+            </div>
           </form>
         </article>
 
-        <article class="panel">
-          <h2>Plan Shots</h2>
-          <form id="plan-form" class="stack">
-            <input name="project_id" placeholder="Project ID" required />
-            <textarea
-              name="prompt"
-              rows="5"
-              placeholder="Describe the scene, motion, speaking moments, and cinematic intent."
-              required
-            ></textarea>
-            <button type="submit">Generate Plan</button>
-          </form>
-        </article>
+        <aside class="panel panel-stack">
+          <div class="stack-card">
+            <p class="card-label">What Lambda owns</p>
+            <ul class="bullet-list">
+              <li>Creates the project and plan state</li>
+              <li>Queues the jobs for RunPod workers</li>
+              <li>Requests Sarvam TTS and stitch completion</li>
+              <li>Returns the S3 final video link when complete</li>
+            </ul>
+          </div>
+
+          <div class="stack-card accent">
+            <p class="card-label">Current project</p>
+            <div class="project-id" id="project-id">No project launched yet</div>
+            <p class="muted" id="status-line">Waiting for your first prompt.</p>
+          </div>
+
+          <div class="stack-card output-card">
+            <div class="card-head">
+              <p class="card-label">Latest response</p>
+              <button class="mini-btn" id="copy-json" type="button">Copy JSON</button>
+            </div>
+            <pre id="response-json">Ready.</pre>
+          </div>
+        </aside>
       </section>
 
-      <section class="grid grid-wide">
-        <article class="panel">
-          <h2>Pipeline Actions</h2>
-          <div class="stack">
-            <form id="jobs-form" class="inline-form">
-              <input name="project_id" placeholder="Project ID" required />
-              <button type="submit">Queue Jobs From Plan</button>
-            </form>
-            <form id="stitch-form" class="inline-form">
-              <input name="project_id" placeholder="Project ID" required />
-              <input name="scene_id" placeholder="Scene ID" value="scene001" required />
-              <button type="submit">Create Stitch Plan</button>
-            </form>
-            <form id="upload-form" class="inline-form">
-              <input name="project_id" placeholder="Project ID" required />
-              <input name="filename" placeholder="Filename" value="ref.png" required />
-              <button type="submit">Get Upload URL</button>
-            </form>
+      <section class="timeline-panel panel">
+        <div class="card-head">
+          <div>
+            <p class="card-label">Pipeline path</p>
+            <h3>Story launch sequence</h3>
           </div>
-        </article>
-
-        <article class="panel">
-          <h2>Inspect Project</h2>
-          <form id="inspect-form" class="inline-form">
-            <input name="project_id" placeholder="Project ID" required />
-            <button type="submit">Load Project State</button>
-          </form>
-          <div class="chips">
-            <button class="secondary" data-target="shots">Shots</button>
-            <button class="secondary" data-target="jobs">Jobs</button>
-            <button class="secondary" data-target="manifests">Manifests</button>
-            <button class="secondary" data-target="outputs">Outputs</button>
+          <span class="status-pill subtle">Lambda → Bedrock → Sarvam → RunPod → FFmpeg → S3</span>
+        </div>
+        <div class="timeline">
+          <div class="timeline-item active">
+            <span class="dot"></span>
+            <div>
+              <strong>1. Prompt intake</strong>
+              <p>Type the story manually into the textarea and launch it.</p>
+            </div>
           </div>
-        </article>
-      </section>
-
-      <section class="results">
-        <article class="panel terminal">
-          <div class="terminal-bar">
-            <span></span><span></span><span></span>
+          <div class="timeline-item">
+            <span class="dot"></span>
+            <div>
+              <strong>2. Lambda orchestration</strong>
+              <p>Lambda creates the project, plan, audio, and render jobs.</p>
+            </div>
           </div>
-          <pre id="console">Ready.</pre>
-        </article>
+          <div class="timeline-item">
+            <span class="dot"></span>
+            <div>
+              <strong>3. Final render</strong>
+              <p>The stitch step assembles the final MP4 and stores it in S3.</p>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
 

@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ManageText2VideoLambda",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:CreateFunction",
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:UpdateFunctionCode",
+        "lambda:UpdateFunctionConfiguration",
+        "lambda:InvokeFunction",
+        "lambda:ListFunctions"
+      ],
+      "Resource": [
+        "arn:aws:lambda:us-east-1:716314429284:function:text2video-story-orchestrator"
+      ]
+    },
+    {
+      "Sid": "ListLambdaFunctionsDuringBootstrap",
+      "Effect": "Allow",
+      "Action": "lambda:ListFunctions",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ReadLambdaExecutionRole",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:PutRolePolicy",
+        "iam:TagRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::716314429284:role/text2video-lambda-orchestrator-role"
+      ]
+    },
+    {
+      "Sid": "PassLambdaExecutionRole",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": [
+        "arn:aws:iam::716314429284:role/text2video-lambda-orchestrator-role"
+      ],
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "lambda.amazonaws.com"
+        }
+      }
+    }
+  ]
+}

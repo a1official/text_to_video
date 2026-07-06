@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Talking Head Pipeline | Signal Foundry</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=Syne:wght@500;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/ui/styles.css" />
+    <style>
+      .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+      }
+      select {
+        width: 100%;
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text);
+        padding: 14px 16px;
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 14px;
+        font: inherit;
+        appearance: none;
+      }
+      .label-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      label {
+        font-size: 0.8rem;
+        color: var(--muted);
+        padding-left: 4px;
+      }
+      .nav-back {
+        display: inline-block;
+        margin-bottom: 24px;
+        color: var(--accent-soft);
+        text-decoration: none;
+        font-size: 0.9rem;
+        font-weight: 600;
+      }
+      .nav-back:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grain"></div>
+    <main class="shell">
+      <a href="/ui/index.html" class="nav-back">← Back to Dashboard</a>
+      
+      <section class="hero">
+        <p class="eyebrow">Advanced Pipelines</p>
+        <h1>Talking Head Generator</h1>
+        <p class="lede">
+          Make any person in a photo speak. This pipeline plans a script with Gemini, 
+          synthesizes audio with Sarvam AI, and animates the face using RunPod InfiniteTalk.
+        </p>
+      </section>
+
+      <section class="grid grid-wide">
+        <article class="panel panel-accent">
+          <h2>Create Talking Head</h2>
+          <form id="talking-head-form" class="stack">
+            <div class="label-group">
+              <label>Project Name / ID</label>
+              <input name="project_id" placeholder="e.g. my-video-001" required />
+            </div>
+            
+            <div class="label-group">
+              <label>1. Upload Presenter Photo</label>
+              <input type="file" id="presenter-image-file" accept="image/*" required style="padding: 10px;" />
+            </div>
+
+            <div class="label-group">
+              <label>2. Paste Your Script</label>
+              <textarea name="script" rows="6" placeholder="Paste the text you want the AI to speak here..." required></textarea>
+            </div>
+            
+            <div class="form-row">
+              <div class="label-group">
+                <label>Voice Gender</label>
+                <select name="gender" id="gender-select">
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                </select>
+              </div>
+              <div class="label-group">
+                <label>Speaker Model</label>
+                <select name="sarvam_speaker" id="speaker-select">
+                  <!-- Options populated by JS -->
+                </select>
+              </div>
+            </div>
+
+            <div class="label-group">
+              <label>Target Language</label>
+              <select name="language_code">
+                <option value="hi-IN" selected>Hindi / Hinglish</option>
+                <option value="en-IN">English (Indian Accent)</option>
+              </select>
+            </div>
+
+
+            <button type="submit" style="margin-top: 10px;">Generate Talking Video</button>
+          </form>
+        </article>
+
+
+        <article class="panel terminal">
+          <div class="terminal-bar">
+            <span></span><span></span><span></span>
+          </div>
+          <pre id="console">Ready for input.</pre>
+        </article>
+      </section>
+
+      <section class="results" id="video-preview-section" style="display: none; margin-top: 24px;">
+        <article class="panel">
+          <h2>Resulting Video</h2>
+          <video id="result-video" controls style="width: 100%; border-radius: 14px; margin-top: 16px;">
+            Your browser does not support the video tag.
+          </video>
+          <div id="script-container" style="margin-top: 20px; padding: 16px; background: rgba(0,0,0,0.2); border-radius: 12px; border-left: 4px solid var(--accent);">
+             <h3 style="margin-top: 0; font-size: 0.9rem; color: var(--accent-soft);">Generated Script</h3>
+             <p id="result-script" style="font-size: 0.95rem; line-height: 1.6; margin-bottom: 0;"></p>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      const speakers = {
+        male: [
+          { value: "aditya", label: "Aditya" },
+          { value: "anand", label: "Anand" },
+          { value: "ashutosh", label: "Ashutosh" },
+          { value: "rahul", label: "Rahul" },
+          { value: "rohan", label: "Rohan" },
+          { value: "amit", label: "Amit" },
+          { value: "dev", label: "Dev" },
+          { value: "ratan", label: "Ratan" },
+          { value: "varun", label: "Varun" },
+          { value: "manan", label: "Manan" },
+          { value: "sumit", label: "Sumit" },
+          { value: "kabir", label: "Kabir" },
+          { value: "aayan", label: "Aayan" },
+          { value: "shubh", label: "Shubh" },
+          { value: "advait", label: "Advait" },
+          { value: "tarun", label: "Tarun" },
+          { value: "sunny", label: "Sunny" },
+          { value: "gokul", label: "Gokul" },
+          { value: "vijay", label: "Vijay" },
+          { value: "mohit", label: "Mohit" },
+          { value: "rehan", label: "Rehan" },
+          { value: "soham", label: "Soham" }
+        ],
+        female: [
+          { value: "priya", label: "Priya" },
+          { value: "ritu", label: "Ritu" },
+          { value: "neha", label: "Neha" },
+          { value: "pooja", label: "Pooja" },
+          { value: "simran", label: "Simran" },
+          { value: "kavya", label: "Kavya" },
+          { value: "ishita", label: "Ishita" },
+          { value: "shreya", label: "Shreya" },
+          { value: "roopa", label: "Roopa" },
+          { value: "tanya", label: "Tanya" },
+          { value: "mani", label: "Mani" },
+          { value: "shruti", label: "Shruti" },
+          { value: "suhani", label: "Suhani" },
+          { value: "kavitha", label: "Kavitha" },
+          { value: "rupali", label: "Rupali" },
+          { value: "niharika", label: "Niharika" }
+        ]
+      };
+
+
+
+      const genderSelect = document.getElementById("gender-select");
+      const speakerSelect = document.getElementById("speaker-select");
+      const consoleEl = document.getElementById("console");
+      const form = document.getElementById("talking-head-form");
+      const videoSection = document.getElementById("video-preview-section");
+      const videoEl = document.getElementById("result-video");
+      const scriptEl = document.getElementById("result-script");
+
+      function updateSpeakers() {
+        const selectedGender = genderSelect.value;
+        speakerSelect.innerHTML = "";
+        speakers[selectedGender].forEach(s => {
+          const opt = document.createElement("option");
+          opt.value = s.value;
+          opt.textContent = s.label;
+          speakerSelect.appendChild(opt);
+        });
+      }
+
+      genderSelect.addEventListener("change", updateSpeakers);
+      updateSpeakers();
+
+      function writeOutput(label, data) {
+        const rendered = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+        consoleEl.textContent = `${label}\n\n${rendered}`;
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const formData = new FormData(form);
+        const imageFile = document.getElementById("presenter-image-file").files[0];
+        
+        writeOutput("Uploading image...", `Uploading ${imageFile.name} to local assets...`);
+        videoSection.style.display = "none";
+
+        try {
+          // 1. Upload the image locally
+          const project_id = formData.get("project_id");
+          const uploadFormData = new FormData();
+          const imageKey = `uploads/${project_id}/${Date.now()}-${imageFile.name}`;
+          uploadFormData.append("file", imageFile);
+          uploadFormData.append("key", imageKey);
+
+          const uploadRes = await fetch("/assets/upload", {
+            method: "POST",
+            body: uploadFormData,
+          });
+          if (!uploadRes.ok) throw new Error("Local image upload failed");
+          
+          writeOutput("Image uploaded!", "Generating talking head script and video... This may take 2-4 minutes.");
+
+          // 2. Trigger the pipeline
+          const payload = Object.fromEntries(formData.entries());
+          payload.presenter_image_key = imageKey; // Set the key we just uploaded
+          
+          const response = await fetch("/pipelines/talking-head", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          
+          const data = await response.json();
+          if (!response.ok) throw new Error(JSON.stringify(data));
+
+          writeOutput("Success!", data);
+          
+          if (data.output_uri) {
+            videoSection.style.display = "block";
+            // The URI returned will be http://localhost:8000/assets/...
+            videoEl.src = data.output_uri;
+            scriptEl.textContent = data.script;
+          }
+        } catch (error) {
+          writeOutput("Error", String(error));
+        }
+      });
+
+    </script>
+  </body>
+</html>

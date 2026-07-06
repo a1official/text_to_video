@@ -1,12 +1,19 @@
-const consoleEl = document.getElementById("console");
-const inspectForm = document.getElementById("inspect-form");
-let inspectProjectId = "";
-let inspectTarget = "shots";
+const storyForm = document.getElementById("story-form");
+const responseJson = document.getElementById("response-json");
+const projectIdEl = document.getElementById("project-id");
+const statusLine = document.getElementById("status-line");
+const refreshBtn = document.getElementById("refresh-btn");
+const copyJsonBtn = document.getElementById("copy-json");
+
+let currentProjectId = "";
+
+function renderJson(value) {
+  return JSON.stringify(value, null, 2);
+}
 
 function writeOutput(label, data) {
-  const rendered =
-    typeof data === "string" ? data : JSON.stringify(data, null, 2);
-  consoleEl.textContent = `${label}\n\n${rendered}`;
+  const payload = typeof data === "string" ? data : renderJson(data);
+  responseJson.textContent = `${label}\n\n${payload}`;
 }
 
 async function postJson(url, body) {
@@ -17,123 +24,68 @@ async function postJson(url, body) {
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    throw new Error(data?.detail ? JSON.stringify(data.detail) : JSON.stringify(data));
   }
   return data;
 }
 
-async function getJson(url) {
-  const response = await fetch(url);
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(JSON.stringify(data));
-  }
-  return data;
-}
-
-document.getElementById("project-form").addEventListener("submit", async (event) => {
+storyForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const form = new FormData(event.currentTarget);
+  const form = new FormData(storyForm);
+  const payload = Object.fromEntries(form.entries());
+
+  statusLine.textContent = "Launching Lambda story...";
+  responseJson.textContent = "Submitting prompt to the Lambda route...";
+
   try {
-    const data = await postJson("/projects", Object.fromEntries(form.entries()));
-    writeOutput("Project created", data);
+    const data = await postJson("/pipelines/story/lambda", payload);
+    currentProjectId = data?.result?.project_id || data?.result?.project?.project_id || "";
+    projectIdEl.textContent = currentProjectId || "Project launched";
+    statusLine.textContent = `Lambda invoked at ${new Date(data.invoked_at).toLocaleString()}`;
+    writeOutput("Lambda launch response", data);
   } catch (error) {
-    writeOutput("Project creation failed", String(error));
+    statusLine.textContent = "Launch failed.";
+    writeOutput("Launch failed", String(error));
   }
 });
 
-document.getElementById("plan-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  try {
-    const data = await postJson("/planner/plan", {
-      project_id: form.get("project_id"),
-      prompt: form.get("prompt"),
-      references: [],
-    });
-    writeOutput("Plan persisted", data);
-  } catch (error) {
-    writeOutput("Plan failed", String(error));
-  }
-});
-
-document.getElementById("jobs-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  try {
-    const data = await postJson(`/projects/${form.get("project_id")}/jobs/from-plan`, {
-      priority: 100,
-      include_continuity: true,
-    });
-    writeOutput("Jobs queued", data);
-  } catch (error) {
-    writeOutput("Job queueing failed", String(error));
-  }
-});
-
-document.getElementById("stitch-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  try {
-    const data = await postJson(`/projects/${form.get("project_id")}/stitch-plan`, {
-      scene_id: form.get("scene_id"),
-      output_prefix: "stitched",
-      output_filename: `${form.get("scene_id")}.mp4`,
-      priority: 90,
-    });
-    writeOutput("Stitch manifest created", data);
-  } catch (error) {
-    writeOutput("Stitch planning failed", String(error));
-  }
-});
-
-document.getElementById("upload-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  try {
-    const data = await postJson("/assets/signed-upload", {
-      project_id: form.get("project_id"),
-      filename: form.get("filename"),
-      prefix: "uploads",
-      expires_in: 300,
-    });
-    writeOutput("Signed upload generated", data);
-  } catch (error) {
-    writeOutput("Signed upload failed", String(error));
-  }
-});
-
-inspectForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.currentTarget);
-  inspectProjectId = form.get("project_id");
-  await inspectCurrentTarget();
-});
-
-document.querySelectorAll("[data-target]").forEach((button) => {
-  button.addEventListener("click", async () => {
-    inspectTarget = button.dataset.target;
-    await inspectCurrentTarget();
-  });
-});
-
-async function inspectCurrentTarget() {
-  if (!inspectProjectId) {
-    writeOutput("Inspect", "Enter a project ID first.");
+refreshBtn.addEventListener("click", async () => {
+  if (!currentProjectId) {
+    writeOutput("Refresh", "Launch a project first so we have a project ID to poll.");
     return;
   }
 
-  const endpoints = {
-    shots: `/projects/${inspectProjectId}/shots`,
-    jobs: `/projects/${inspectProjectId}/jobs`,
-    manifests: `/projects/${inspectProjectId}/manifests`,
-    outputs: `/projects/${inspectProjectId}/outputs`,
-  };
-
+  statusLine.textContent = "Polling project state...";
   try {
-    const data = await getJson(endpoints[inspectTarget]);
-    writeOutput(`Project ${inspectTarget}`, data);
+    const result = await postJson(`/projects/${currentProjectId}/poll`, {
+      scene_id: "scene001",
+      output_prefix: "stitched",
+      output_filename: "scene001.mp4",
+    });
+    statusLine.textContent = `Project state: ${result.state}`;
+    writeOutput("Project poll", result);
   } catch (error) {
-    writeOutput(`Failed loading ${inspectTarget}`, String(error));
+    statusLine.textContent = "Poll failed.";
+    writeOutput("Poll failed", String(error));
   }
-}
+});
+
+copyJsonBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(responseJson.textContent);
+    copyJsonBtn.textContent = "Copied";
+    setTimeout(() => {
+      copyJsonBtn.textContent = "Copy JSON";
+    }, 1200);
+  } catch {
+    copyJsonBtn.textContent = "Copy failed";
+    setTimeout(() => {
+      copyJsonBtn.textContent = "Copy JSON";
+    }, 1200);
+  }
+});
+
+writeOutput("Ready", {
+  message: "Type your story prompt above and launch the Lambda pipeline.",
+  route: "/pipelines/story/lambda",
+});

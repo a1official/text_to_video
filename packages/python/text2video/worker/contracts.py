@@ -15,14 +15,22 @@ class RenderWorkerPayload(BaseWorkerPayload):
     summary: str = ""
     prompt: str
     camera: str = ""
+    appearance_prompt: str = ""
+    motion_prompt: str = ""
+    camera_prompt: str = ""
     duration_sec: int = 5
     shot_type: str
-    backend_hint: Literal["wan", "humo", "ltx"]
+    backend_hint: Literal["wan", "humo", "ltx", "nano_banana_2_edit", "veo"]
+    quality_tier: Literal["preview", "hero"] = "preview"
     audio_mode: str = "ambience"
     render_mode: str = "t2v"
     keyframe_output_key: str = ""
     source_image_key: str = ""
     depends_on_job_id: str = ""
+    preview_output_key: str = ""
+    preview_job_id: str = ""
+    promotion_target: str = ""
+    escalation_reason: str = ""
     continuity: list[str] = Field(default_factory=list)
 
 
@@ -42,6 +50,7 @@ class StitchWorkerPayload(BaseModel):
     scene_id: str
     manifest_sk: str
     output_key: str
+    audio_key: str = ""
     continuity: list[str] = Field(default_factory=list)
     segments: list[StitchSegmentRef] = Field(default_factory=list)
 

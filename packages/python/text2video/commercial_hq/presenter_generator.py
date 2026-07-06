@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 import base64
@@ -31,11 +32,14 @@ def generate_presenter_image(
     storage = S3Storage(settings)
     output_key = f"presenters/{project_id}/{shot_id}.png"
     public_client = RunpodPublicEndpointClient(settings)
-    product_image_url = storage.create_presigned_download(product_image_key, expires_in=3600)["url"]
+    reference_path = get_runtime_path(settings, "presenters", project_id, f"{shot_id}-reference{Path(product_image_key).suffix or '.png'}")
+    reference_path.parent.mkdir(parents=True, exist_ok=True)
+    storage.download_file(product_image_key, str(reference_path))
+    product_image_url = file_to_data_uri(reference_path)
     completed_payload = public_client.generate_nano_banana_2_edit(
         prompt=prompt,
         images=[product_image_url],
-        resolution="1k",
+        resolution="2k",
         output_format="png",
         enable_safety_checker=True,
     )
@@ -60,6 +64,7 @@ def generate_presenter_image(
         "s3_key": output_key,
         "local_path": str(local_path),
         "download_url": storage.create_presigned_download(output_key, expires_in=3600)["url"],
+        "data_uri": file_to_data_uri(local_path),
     }
 
 
@@ -127,3 +132,8 @@ def download_remote_file(url: str, target_path: Path) -> Path:
                 break
             time.sleep(2 * (attempt + 1))
     raise last_error if last_error else RuntimeError(f"Failed to download presenter asset from {url}")
+
+
+def file_to_data_uri(path: Path) -> str:
+    mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return f"data:{mime_type};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"

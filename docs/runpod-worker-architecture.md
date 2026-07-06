@@ -60,6 +60,8 @@ Each Runpod worker should:
 - `S3_BUCKET`
 - `RUNPOD_API_KEY`
 - `RUNPOD_POD_ID`
+- `RUNPOD_WAN_INFERENCE_BASE_URL`
+- `RUNPOD_LTX_INFERENCE_BASE_URL`
 
 ## Immediate Next Step
 
@@ -69,3 +71,4 @@ When you're ready for compute bring-up, the next task is:
 2. install `Wan2.2`
 3. copy the worker code onto the Pod
 4. connect it to the existing DynamoDB queue
+5. start `scripts/runpod/start-worker-stack.sh` to run the WAN service, LTX service, and both queue workers together

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     app_name: str = "text2video"
     app_env: str = "dev"
     runtime_root: str = "runtime"
+    base_public_url: str = "http://localhost:8000"
+
 
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
@@ -23,6 +25,18 @@ class Settings(BaseSettings):
     aws_default_region: str = "us-east-1"
     sarvam_api_key: str | None = None
     sarvam_tts_base_url: str = "https://api.sarvam.ai/text-to-speech"
+    elevenlabs_api_key: str | None = None
+    elevenlabs_base_url: str = "https://api.elevenlabs.io/v1"
+    elevenlabs_tts_model_id: str = "eleven_flash_v2_5"
+    openrouter_api_key: str | None = None
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    nvidia_api_key: str | None = None
+    nvidia_api_base_url: str = "https://ai.api.nvidia.com"
+    nvidia_video_generate_path: str = "/v1/genai/stabilityai/stable-video-diffusion"
+    nvidia_video_model: str = "stabilityai/stable-video-diffusion"
+    replicate_api_key: str | None = None
+    replicate_api_base_url: str = "https://api.replicate.com/v1"
+    replicate_video_model: str = "luma/ray-2-720p"
 
     s3_bucket: str = ""
     dynamodb_projects_table: str = "t2v-projects"
@@ -35,6 +49,7 @@ class Settings(BaseSettings):
     bedrock_model_id: str = "us.amazon.nova-pro-v1:0"
     bedrock_temperature: float = 0.2
     bedrock_max_tokens: int = 2000
+    lambda_story_orchestrator_function_name: str = "text2video-story-orchestrator"
 
     runpod_api_key: str | None = None
     runpod_endpoint_id: str | None = None
@@ -46,6 +61,7 @@ class Settings(BaseSettings):
     runpod_infinitetalk_base_url: str = "https://api.runpod.ai/v2/infinitetalk/run"
     runpod_nano_banana_2_edit_base_url: str = "https://api.runpod.ai/v2/google-nano-banana-2-edit/run"
     runpod_seedance_i2v_base_url: str = "https://api.runpod.ai/v2/seedance-v1-5-pro-i2v/runsync"
+    runpod_veo_i2v_base_url: str = "https://api.runpod.ai/v2/google-veo3-1-fast-i2v/run"
     runpod_request_timeout_sec: int = 3600
     ltx_model_id: str = "Lightricks/LTX-2.3"
     ltx_repo_root: str = "/workspace/text2video/ltx2-official"
@@ -67,8 +83,10 @@ class Settings(BaseSettings):
         default_factory=lambda: [
             "plan_project",
             "generate_keyframe_sdxl",
+            "generate_keyframe_nano_banana_2_edit",
             "generate_preview",
             "generate_segment_wan",
+            "generate_segment_veo",
             "generate_segment_humo",
             "score_segment",
             "stitch_segments",

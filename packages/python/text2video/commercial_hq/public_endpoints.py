@@ -111,6 +111,40 @@ class RunpodPublicEndpointClient:
         payload = response.json()
         return self._resolve_payload(payload, self.settings.runpod_seedance_i2v_base_url)
 
+    def generate_veo_i2v(
+        self,
+        *,
+        prompt: str,
+        image_url: str,
+        duration: int = 5,
+        resolution: str = "720p",
+        aspect_ratio: str = "16:9",
+        generate_audio: bool = True,
+        seed: int = 0,
+    ) -> dict:
+        response = httpx.post(
+            self.settings.runpod_veo_i2v_base_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "input": {
+                    "prompt": prompt,
+                    "image": image_url,
+                    "aspect_ratio": aspect_ratio,
+                    "duration": duration,
+                    "resolution": resolution,
+                    "generate_audio": generate_audio,
+                    "seed": seed,
+                }
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return self._resolve_payload(payload, self.settings.runpod_veo_i2v_base_url)
+
     def generate_nano_banana_2_edit(
         self,
         *,

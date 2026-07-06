@@ -1,557 +1,202 @@
 "use client";
 
-import { ChangeEvent, DragEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import styles from "./page.module.css";
 
-type StepState = "idle" | "active" | "done" | "error";
-type BriefMode = "quick" | "detailed";
+type StoryLambdaResponse = {
+  function_name: string;
+  invoked_at: string;
+  request: {
+    title: string;
+    created_by: string;
+    prompt: string;
+    voice_id: string;
+    language_code: string;
+    priority: number;
+  };
+  result: {
+    project_id?: string;
+    state?: string;
+    detail?: string;
+    final_output_uri?: string;
+    final_download_url?: string;
+    jobs?: unknown[];
+    outputs?: unknown[];
+    [key: string]: unknown;
+  };
+};
 
-type CommercialResponse = {
-  project_id: string;
-  summary: string;
-  concept: string;
-  voiceover_script: string;
-  stitched_output_key: string;
-  stitched_output_uri: string;
-  stitched_local_path: string;
-  shots: Array<Record<string, unknown>>;
-  segment_debug: Array<Record<string, unknown>>;
+type PollResponse = {
+  state?: string;
+  detail?: string;
+  final_output_uri?: string;
+  final_download_url?: string;
+  job_count?: number;
+  manifest_count?: number;
+  failed_jobs?: unknown[];
+  outputs?: unknown[];
+  [key: string]: unknown;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-const defaultPrompt =
-  "Create an English premium commercial. Show a confident presenter speaking naturally to camera, intercut with refined luxury product hero shots, label visibility, and a polished closing packshot.";
-
-const initialSteps = [
-  {
-    key: "upload",
-    name: "Asset Intake",
-    description: "Upload the product still and mint a signed S3 object key for the commercial run.",
-  },
-  {
-    key: "trigger",
-    name: "Pipeline Trigger",
-    description: "Send the brief to the commercial HQ pipeline so Bedrock, Nano Banana, InfiniteTalk, and Seedance can run.",
-  },
-  {
-    key: "deliver",
-    name: "Delivery",
-    description: "Surface the final stitched commercial URI, concept, and the underlying shot plan.",
-  },
-] as const;
-
-function generateProjectId() {
-  return `mercury-${Math.random().toString(36).slice(2, 10)}`;
-}
-
 async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(JSON.stringify(data));
+    throw new Error(typeof data?.detail === "string" ? data.detail : JSON.stringify(data));
   }
   return data as T;
 }
 
+async function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function Page() {
-  const [projectId, setProjectId] = useState(generateProjectId);
-  const [briefMode, setBriefMode] = useState<BriefMode>("quick");
-  const [productName, setProductName] = useState("");
-  const [productCategory, setProductCategory] = useState("");
-  const [productDescription, setProductDescription] = useState("");
-  const [targetAudience, setTargetAudience] = useState("");
-  const [keyBenefitsText, setKeyBenefitsText] = useState("");
-  const [brandTone, setBrandTone] = useState("Premium, trustworthy, English-language commercial");
-  const [callToAction, setCallToAction] = useState("");
-  const [additionalNotes, setAdditionalNotes] = useState("");
-  const [prompt, setPrompt] = useState(defaultPrompt);
-  const [voiceId, setVoiceId] = useState("Matthew");
-  const [maxShots, setMaxShots] = useState(5);
-  const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>("");
-  const [isDragging, setIsDragging] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<CommercialResponse | null>(null);
-  const [stepState, setStepState] = useState<Record<string, StepState>>({
-    upload: "idle",
-    trigger: "idle",
-    deliver: "idle",
-  });
-
-  const prettyResult = useMemo(
-    () => (result ? JSON.stringify(result, null, 2) : "No commercial generated yet."),
-    [result],
+  const [prompt, setPrompt] = useState(
+    "Create a cinematic travel story about a traveler discovering hidden cafes, scenic routes, and authentic local moments.",
   );
+  const [loading, setLoading] = useState(false);
+  const [projectId, setProjectId] = useState("");
+  const [logs, setLogs] = useState<string[]>([
+    "Ready. Paste a story prompt and launch the Lambda pipeline.",
+  ]);
+  const [finalUrl, setFinalUrl] = useState("");
+  const logText = useMemo(() => logs.join("\n"), [logs]);
 
-  function updateStep(key: string, state: StepState) {
-    setStepState((previous) => ({ ...previous, [key]: state }));
+  function appendLog(message: string) {
+    const stamp = new Date().toLocaleTimeString();
+    setLogs((current) => [...current, `[${stamp}] ${message}`]);
   }
 
-  function handleFile(nextFile: File | null) {
-    setFile(nextFile);
-    setResult(null);
-    setError("");
-    if (!nextFile) {
-      setPreviewUrl("");
-      return;
-    }
-
-    const objectUrl = URL.createObjectURL(nextFile);
-    setPreviewUrl(objectUrl);
-  }
-
-  function onDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    setIsDragging(false);
-    const nextFile = event.dataTransfer.files?.[0] ?? null;
-    handleFile(nextFile);
-  }
-
-  async function runPipeline() {
-    if (!file) {
-      setError("Add a product image before triggering the commercial pipeline.");
-      return;
-    }
-    if (!productName.trim() || !productCategory.trim()) {
-      setError("Fill in both the product name and product category before triggering the commercial pipeline.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    setError("");
-    setResult(null);
-    setStepState({ upload: "active", trigger: "idle", deliver: "idle" });
-
-    try {
-      const signedUpload = await postJson<{ key: string; url: string }>("/api/upload", {
-        project_id: projectId,
-        filename: file.name,
-        prefix: "uploads",
-        expires_in: 600,
+  async function pollUntilDone(id: string) {
+    appendLog(`Polling project ${id} for status updates.`);
+    for (let i = 0; i < 40; i += 1) {
+      const poll = await postJson<PollResponse>(`/projects/${id}/poll`, {
+        scene_id: "scene001",
+        output_prefix: "stitched",
+        output_filename: "scene001.mp4",
       });
+      appendLog(`Project state: ${poll.state ?? "unknown"}${poll.detail ? ` | ${poll.detail}` : ""}`);
 
-      const uploadResponse = await fetch(signedUpload.url, {
-        method: "PUT",
-        headers: { "Content-Type": file.type || "image/png" },
-        body: file,
-      });
-
-      if (!uploadResponse.ok) {
-        throw new Error(`Upload failed with status ${uploadResponse.status}`);
+      if (poll.final_download_url) {
+        setFinalUrl(poll.final_download_url);
+        appendLog("Final video link is ready.");
+        return;
       }
 
-      updateStep("upload", "done");
-      updateStep("trigger", "active");
+      if (poll.state === "failed") {
+        appendLog("Pipeline failed. Check the response JSON for details.");
+        return;
+      }
 
-      const commercial = await postJson<CommercialResponse>("/api/commercial", {
-        project_id: projectId,
-        product_image_key: signedUpload.key,
-        brief_mode: briefMode,
-        product_name: productName,
-        product_category: productCategory,
-        product_description: productDescription,
-        target_audience: targetAudience,
-        key_benefits: keyBenefitsText
-          .split(/\r?\n|,/)
-          .map((value) => value.trim())
-          .filter(Boolean),
-        brand_tone: brandTone,
-        call_to_action: callToAction,
-        additional_notes: additionalNotes,
+      if (poll.state === "complete") {
+        appendLog("Pipeline completed, but no download URL was returned yet.");
+        return;
+      }
+
+      await sleep(5000);
+    }
+
+    appendLog("Polling stopped after reaching the time limit.");
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (loading) return;
+
+    setLoading(true);
+    setFinalUrl("");
+    setLogs([]);
+
+    try {
+      appendLog("Submitting prompt to /pipelines/story/lambda.");
+      const payload = {
+        title: "Lambda Story Launch",
+        created_by: "akash",
         prompt,
-        max_shots: maxShots,
-        voice_id: voiceId,
-      });
+        voice_id: "Matthew",
+        language_code: "en-IN",
+        priority: 100,
+      };
 
-      updateStep("trigger", "done");
-      updateStep("deliver", "done");
-      setResult(commercial);
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
-      setError(message);
-      setStepState((current) =>
-        Object.fromEntries(
-          Object.entries(current).map(([key, value]) => [key, value === "done" ? "done" : "error"]),
-        ) as Record<string, StepState>,
-      );
+      const data = await postJson<StoryLambdaResponse>("/pipelines/story/lambda", payload);
+      setProjectId(data.result.project_id ?? "");
+      appendLog(`Lambda invoked: ${data.function_name}`);
+      appendLog(`Project ID: ${data.result.project_id ?? "unknown"}`);
+      appendLog(`Initial state: ${data.result.state ?? "queued"}`);
+
+      const finalDownloadUrl = data.result.final_download_url;
+      if (finalDownloadUrl) {
+        setFinalUrl(finalDownloadUrl);
+        appendLog("Final download URL returned immediately.");
+        return;
+      }
+
+      if (data.result.project_id) {
+        await sleep(2000);
+        await pollUntilDone(data.result.project_id);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendLog(`Error: ${message}`);
     } finally {
-      setIsSubmitting(false);
+      setLoading(false);
     }
   }
 
   return (
     <main className={styles.page}>
-      <div className={styles.shell}>
-        <section className={styles.masthead}>
-          <div className={styles.brand}>
-            <p className={styles.kicker}>Mercury Studio / Commercial OS</p>
-            <h1 className={styles.title}>Turn one product still into an English ad film.</h1>
-            <p className={styles.subtitle}>
-              Upload the packshot, shape the brief, and let the commercial pipeline orchestrate
-              Bedrock planning, Nano Banana presenter generation, InfiniteTalk speaking moments,
-              Seedance hero shots, and final FFmpeg assembly. The selected voice now determines
-              whether the spokesperson is generated as male or female.
-            </p>
-          </div>
+      <section className={styles.shell}>
+        <header className={styles.header}>
+          <p className={styles.kicker}>Lambda Prompt Console</p>
+          <h1>One prompt in. One button. Live logs out.</h1>
+          <p className={styles.subtitle}>
+            Send a story prompt to the Lambda route and watch the orchestration progress in real time.
+          </p>
+        </header>
 
-          <div className={styles.badgeCluster}>
-            <div className={styles.signalCard}>
-              <div className={styles.signalLabel}>Pipeline</div>
-              <div className={styles.signalValue}>Serverless-Only</div>
-              <div className={styles.signalHint}>
-                Nano Banana 2 Edit + InfiniteTalk + Seedance 1.5 Pro, all routed behind one
-                cinematic intake surface.
-              </div>
+        <div className={styles.grid}>
+          <form className={styles.panel} onSubmit={handleSubmit}>
+            <label className={styles.label} htmlFor="prompt">
+              Story prompt
+            </label>
+            <textarea
+              id="prompt"
+              className={styles.textarea}
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder="Describe the story you want Lambda to launch..."
+            />
+            <div className={styles.actions}>
+              <button className={styles.primaryButton} type="submit" disabled={loading}>
+                {loading ? "Running Lambda..." : "Run Lambda"}
+              </button>
             </div>
-            <div className={styles.readout}>
-              <div className={styles.panelInner}>
-                <div className={styles.signalLabel}>Default Voice</div>
-                <div className={styles.signalValue}>{voiceId}</div>
-                <div className={styles.signalHint}>Exact English copy is synthesized before speaking shots are animated.</div>
-              </div>
+          </form>
+
+          <aside className={styles.logPanel}>
+            <div className={styles.logHeader}>
+              <h2>Live Logs</h2>
+              {finalUrl ? (
+                <a className={styles.link} href={finalUrl} target="_blank" rel="noreferrer">
+                  Open final video
+                </a>
+              ) : null}
             </div>
-          </div>
-        </section>
-
-        <section className={styles.grid}>
-          <section className={styles.panel}>
-            <div className={styles.panelInner}>
-              <h2 className={styles.panelTitle}>Campaign Intake</h2>
-              <p className={styles.panelIntro}>
-                Feed the system a product image and a direction. The interface handles upload,
-                trigger, and delivery without making you babysit individual model calls.
-              </p>
-
-              <div className={styles.formGrid}>
-                <label
-                  className={`${styles.wideField} ${styles.dropzone} ${isDragging ? styles.dropzoneActive : ""}`}
-                  onDragOver={(event) => {
-                    event.preventDefault();
-                    setIsDragging(true);
-                  }}
-                  onDragLeave={() => setIsDragging(false)}
-                  onDrop={onDrop}
-                >
-                  <input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    hidden
-                    onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                      handleFile(event.target.files?.[0] ?? null)
-                    }
-                  />
-                  <div className={styles.dropzoneTitle}>Drop the product image here</div>
-                  <div className={styles.dropzoneHint}>
-                    Best results come from a clean packshot or front-facing product still. The
-                    backend will preserve this identity across the commercial.
-                  </div>
-                  <div className={styles.dropzoneMeta}>
-                    <span className={styles.chip}>{file ? file.name : "PNG / JPG / WEBP"}</span>
-                    <span className={styles.chip}>{file ? `${Math.round(file.size / 1024)} KB` : "Single hero still"}</span>
-                  </div>
-                </label>
-
-                <div className={styles.wideField}>
-                  <span className={styles.label}>Product Preview</span>
-                  <div className={styles.previewWrap}>
-                    <div className={styles.previewFrame}>
-                      {previewUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={previewUrl} alt="Uploaded product preview" className={styles.previewImage} />
-                      ) : (
-                        <div className={styles.previewPlaceholder}>
-                          The uploaded packshot appears here before the pipeline is triggered.
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <label className={styles.field}>
-                  <span className={styles.label}>Project ID</span>
-                  <input
-                    className={styles.input}
-                    value={projectId}
-                    onChange={(event) => setProjectId(event.target.value)}
-                  />
-                </label>
-
-                <div className={styles.wideField}>
-                  <span className={styles.label}>Brief Mode</span>
-                  <div className={styles.modeSwitch}>
-                    <button
-                      type="button"
-                      className={`${styles.modeButton} ${briefMode === "quick" ? styles.modeButtonActive : ""}`}
-                      onClick={() => setBriefMode("quick")}
-                    >
-                      Quick Brief
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.modeButton} ${briefMode === "detailed" ? styles.modeButtonActive : ""}`}
-                      onClick={() => setBriefMode("detailed")}
-                    >
-                      Commercial Brief
-                    </button>
-                  </div>
-                  <p className={styles.modeHint}>
-                    Quick brief uses product name and category for speed. Commercial brief adds
-                    audience, benefits, tone, and CTA for stronger Bedrock scripts.
-                  </p>
-                </div>
-
-                <label className={styles.field}>
-                  <span className={styles.label}>Product Name</span>
-                  <input
-                    className={styles.input}
-                    placeholder="Head & Shoulders Deep Scalp Cleanse"
-                    value={productName}
-                    onChange={(event) => setProductName(event.target.value)}
-                  />
-                </label>
-
-                <label className={styles.field}>
-                  <span className={styles.label}>Product Category</span>
-                  <input
-                    className={styles.input}
-                    placeholder="Shampoo"
-                    value={productCategory}
-                    onChange={(event) => setProductCategory(event.target.value)}
-                  />
-                </label>
-
-                {briefMode === "detailed" ? (
-                  <>
-                    <label className={styles.wideField}>
-                      <span className={styles.label}>Product Description</span>
-                      <textarea
-                        className={styles.textareaCompact}
-                        placeholder="Summarize what the product is, what it does, and what makes it distinct."
-                        value={productDescription}
-                        onChange={(event) => setProductDescription(event.target.value)}
-                      />
-                    </label>
-
-                    <label className={styles.field}>
-                      <span className={styles.label}>Target Audience</span>
-                      <input
-                        className={styles.input}
-                        placeholder="Urban professionals looking for scalp-care confidence"
-                        value={targetAudience}
-                        onChange={(event) => setTargetAudience(event.target.value)}
-                      />
-                    </label>
-
-                    <label className={styles.field}>
-                      <span className={styles.label}>Brand Tone</span>
-                      <input
-                        className={styles.input}
-                        placeholder="Premium, fresh, trustworthy"
-                        value={brandTone}
-                        onChange={(event) => setBrandTone(event.target.value)}
-                      />
-                    </label>
-
-                    <label className={styles.wideField}>
-                      <span className={styles.label}>Key Benefits</span>
-                      <textarea
-                        className={styles.textareaCompact}
-                        placeholder={"Deep scalp cleanse\nFresh confidence\nAnti-dandruff care"}
-                        value={keyBenefitsText}
-                        onChange={(event) => setKeyBenefitsText(event.target.value)}
-                      />
-                    </label>
-
-                    <label className={styles.field}>
-                      <span className={styles.label}>Call To Action</span>
-                      <input
-                        className={styles.input}
-                        placeholder="Upgrade your daily scalp-care routine"
-                        value={callToAction}
-                        onChange={(event) => setCallToAction(event.target.value)}
-                      />
-                    </label>
-
-                    <label className={styles.field}>
-                      <span className={styles.label}>Additional Notes</span>
-                      <input
-                        className={styles.input}
-                        placeholder="Avoid medical claims. Keep the bottle hero in every shot."
-                        value={additionalNotes}
-                        onChange={(event) => setAdditionalNotes(event.target.value)}
-                      />
-                    </label>
-                  </>
-                ) : null}
-
-                <label className={styles.field}>
-                  <span className={styles.label}>Voice</span>
-                  <select
-                    className={styles.input}
-                    value={voiceId}
-                    onChange={(event) => setVoiceId(event.target.value)}
-                  >
-                    <option value="Matthew">Matthew</option>
-                    <option value="Joanna">Joanna</option>
-                    <option value="Brian">Brian</option>
-                    <option value="Amy">Amy</option>
-                  </select>
-                </label>
-
-                <label className={styles.field}>
-                  <span className={styles.label}>Shot Count</span>
-                  <input
-                    className={styles.input}
-                    type="number"
-                    min={3}
-                    max={7}
-                    value={maxShots}
-                    onChange={(event) => setMaxShots(Number(event.target.value))}
-                  />
-                </label>
-
-                <div className={styles.field}>
-                  <span className={styles.label}>API Base</span>
-                  <input className={styles.input} value={API_BASE} readOnly />
-                </div>
-
-                <label className={styles.wideField}>
-                  <span className={styles.label}>Commercial Prompt</span>
-                  <textarea
-                    className={styles.textarea}
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                  />
-                </label>
-              </div>
-
-              <div className={styles.actionRow}>
-                <button
-                  type="button"
-                  className={styles.primaryButton}
-                  onClick={runPipeline}
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Generating Commercial..." : "Trigger Pipeline"}
-                </button>
-                <button
-                  type="button"
-                  className={styles.ghostButton}
-                  onClick={() => {
-                    setProjectId(generateProjectId());
-                    setBriefMode("quick");
-                    setProductName("");
-                    setProductCategory("");
-                    setProductDescription("");
-                    setTargetAudience("");
-                    setKeyBenefitsText("");
-                    setBrandTone("Premium, trustworthy, English-language commercial");
-                    setCallToAction("");
-                    setAdditionalNotes("");
-                    setPrompt(defaultPrompt);
-                    setVoiceId("Matthew");
-                    setMaxShots(5);
-                    handleFile(null);
-                    setError("");
-                    setResult(null);
-                    setStepState({ upload: "idle", trigger: "idle", deliver: "idle" });
-                  }}
-                  disabled={isSubmitting}
-                >
-                  Reset Board
-                </button>
-              </div>
-
-              {error ? <div className={styles.errorBanner}>{error}</div> : null}
+            <div className={styles.metaLine}>
+              <span>API: {API_BASE}</span>
+              <span>Project: {projectId || "not started"}</span>
             </div>
-          </section>
-
-          <aside className={styles.sideNotes}>
-            <section className={styles.noteCard}>
-              <h3 className={styles.noteTitle}>Pipeline Ladder</h3>
-              <div className={styles.statusGrid}>
-                {initialSteps.map((step) => {
-                  const state = stepState[step.key];
-                  return (
-                    <article
-                      key={step.key}
-                      className={`${styles.stepCard} ${
-                        state === "active"
-                          ? styles.stateActive
-                          : state === "done"
-                            ? styles.stateDone
-                            : state === "error"
-                              ? styles.stateError
-                              : styles.stateIdle
-                      }`}
-                    >
-                      <div className={styles.stepTop}>
-                        <div className={styles.stepName}>{step.name}</div>
-                        <div className={styles.stepState}>{state}</div>
-                      </div>
-                      <div className={styles.stepDesc}>{step.description}</div>
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className={styles.noteCard}>
-              <h3 className={styles.noteTitle}>What This Triggers</h3>
-              <p className={styles.noteBody}>
-                Bedrock now writes the English commercial script from either a fast product brief
-                or a richer commercial-grade brief. Nano Banana creates the presenter still,
-                InfiniteTalk handles speaking performance, Seedance renders hero product shots, and
-                FFmpeg assembles the final cut.
-              </p>
-              <div className={styles.pillRow}>
-                <span className={styles.pill}>Bedrock planning</span>
-                <span className={styles.pill}>Nano Banana 2 Edit</span>
-                <span className={styles.pill}>InfiniteTalk</span>
-                <span className={styles.pill}>Seedance 1.5 Pro</span>
-                <span className={styles.pill}>FFmpeg stitch</span>
-              </div>
-            </section>
+            <pre className={styles.logBox}>{logText}</pre>
           </aside>
-        </section>
-
-        <section className={styles.resultsPanel}>
-          <div className={styles.resultsCard}>
-            <div className={styles.resultsHeader}>
-              <div>
-                <h2 className={styles.resultsTitle}>Delivery Console</h2>
-                <p className={styles.resultsLead}>
-                  Final stitched output, concept summary, and raw pipeline response appear here after the commercial completes.
-                </p>
-              </div>
-              <div className={styles.tag}>{result ? "Commercial Ready" : "Awaiting Run"}</div>
-            </div>
-
-            <div className={styles.resultList}>
-              <div className={styles.resultItem}>
-                <div className={styles.resultLabel}>Stitched Output URI</div>
-                <div className={styles.resultValue}>{result?.stitched_output_uri ?? "No output yet"}</div>
-              </div>
-              <div className={styles.resultItem}>
-                <div className={styles.resultLabel}>Concept</div>
-                <div className={styles.resultValue}>{result?.concept ?? "The concept summary will appear after the run finishes."}</div>
-              </div>
-              <div className={styles.resultItem}>
-                <div className={styles.resultLabel}>Voiceover Script</div>
-                <div className={styles.resultValue}>{result?.voiceover_script ?? "No voiceover drafted yet."}</div>
-              </div>
-            </div>
-
-            <pre className={styles.jsonBlock}>{prettyResult}</pre>
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }

@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "capture:traveyclub": "node scripts/capture-traveyclub.mjs"
   },
   "dependencies": {
     "next": "15.3.1",
@@ -17,6 +18,7 @@
     "@types/node": "22.15.3",
     "@types/react": "19.1.2",
     "@types/react-dom": "19.1.2",
+    "playwright": "^1.60.0",
     "typescript": "5.8.3"
   }
 }

@@ -1,0 +1,74 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DynamoDBProjectWorkflowAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:BatchGetItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-projects",
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-jobs",
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-outputs",
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-continuity"
+      ]
+    },
+    {
+      "Sid": "DynamoDBProjectWorkflowIndexes",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-projects/index/*",
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-jobs/index/*",
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-outputs/index/*",
+        "arn:aws:dynamodb:us-east-1:716314429284:table/t2v-continuity/index/*"
+      ]
+    },
+    {
+      "Sid": "CloudWatchLogsForLambda",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BedrockPlannerAccess",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3PipelineArtifactAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": [
+        "arn:aws:s3:::t2v-assets-716314429284-us-east-1",
+        "arn:aws:s3:::t2v-assets-716314429284-us-east-1/*"
+      ]
+    }
+  ]
+}

@@ -19,12 +19,14 @@ This is the first compute bring-up path for the current project.
 6. start the remote inference service on the pod
 7. point the local control plane at that service
 8. run the local `wan` worker to dispatch jobs remotely
+9. optionally run the combined worker stack to keep WAN and LTX workers alive together
 
 ## Files Added For This
 
 - `scripts/runpod/bootstrap-ti2v-services.sh`
 - `scripts/runpod/start-inference-service.sh`
 - `scripts/runpod/render-runpod-env.ps1`
+- `scripts/runpod/start-worker-stack.sh`
 
 ## Local Commands
 
@@ -65,11 +67,18 @@ cd /workspace/text2video
 unzip -o text2video-runpod.zip -d app
 chmod +x /workspace/text2video/app/scripts/runpod/bootstrap-ti2v-services.sh
 chmod +x /workspace/text2video/app/scripts/runpod/start-inference-service.sh
+chmod +x /workspace/text2video/app/scripts/runpod/start-worker-stack.sh
 /workspace/text2video/app/scripts/runpod/bootstrap-ti2v-services.sh
 cp /workspace/text2video/app/runtime/runpod/.env.runpod /workspace/text2video/app/.env
 /workspace/text2video/app/scripts/runpod/start-inference-service.sh
+/workspace/text2video/app/scripts/runpod/start-worker-stack.sh
 ```
 
 ## Remaining Technical Gap
 
-The remaining local step is setting `RUNPOD_INFERENCE_BASE_URL` in `.env` to the pod's HTTP URL and then running a local worker with `WORKER_TYPE=wan`.
+The remaining local step is setting the pod-facing URLs in `.env`:
+
+- `RUNPOD_WAN_INFERENCE_BASE_URL=http://127.0.0.1:8000`
+- `RUNPOD_LTX_INFERENCE_BASE_URL=http://127.0.0.1:8888`
+
+Then run the worker stack so the WAN and general workers both consume DynamoDB jobs on the pod.

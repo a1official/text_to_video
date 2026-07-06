@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 from boto3.dynamodb.conditions import Key
@@ -107,6 +108,46 @@ class DynamoProjectStore:
             "continuity": continuity,
             "shots": shots,
         }
+
+    def update_project_metadata(self, project_id: str, fields: dict[str, Any]) -> dict:
+        project = self.get_project(project_id)
+        if not project:
+            raise ClientError(
+                {
+                    "Error": {
+                        "Code": "ResourceNotFoundException",
+                        "Message": f"Project {project_id} was not found",
+                    }
+                },
+                "GetItem",
+            )
+
+        if not fields:
+            return project
+
+        now = utc_now_iso()
+        expression_attribute_names: dict[str, str] = {}
+        expression_attribute_values: dict[str, Any] = {":updated_at": now}
+        assignments = ["updated_at = :updated_at"]
+
+        for index, (key, value) in enumerate(fields.items()):
+            name_key = f"#field_{index}"
+            value_key = f":value_{index}"
+            expression_attribute_names[name_key] = key
+            expression_attribute_values[value_key] = value
+            assignments.append(f"{name_key} = {value_key}")
+
+        response = self.table.update_item(
+            Key={"pk": f"PROJECT#{project_id}", "sk": "META"},
+            UpdateExpression="SET " + ", ".join(assignments),
+            ExpressionAttributeNames=expression_attribute_names,
+            ExpressionAttributeValues=expression_attribute_values,
+            ReturnValues="ALL_NEW",
+        )
+        return response.get("Attributes", {})
+
+    def set_project_status(self, project_id: str, status: str, **fields: Any) -> dict:
+        return self.update_project_metadata(project_id, {"status": status, **fields})
 
     def list_shots(self, project_id: str) -> list[dict]:
         items = self.list_project_items(project_id)
